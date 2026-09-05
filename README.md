@@ -1,0 +1,1 @@
+For production in vercel: vercel --prod
