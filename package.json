@@ -1,6 +1,7 @@
 {
   "name": "znz-backend",
   "version": "1.0.0",
+  "packageManager": "pnpm@12.3.4",
   "main": "index.js",
   "scripts": {
     "build": "tsc",
