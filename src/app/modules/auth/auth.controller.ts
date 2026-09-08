@@ -1,16 +1,9 @@
 import bcrypt from 'bcrypt';
-import jwt, { JwtPayload } from 'jsonwebtoken';
 import { RequestHandler, Response } from 'express';
-import { AuthServices } from './auth.service';
+import jwt, { JwtPayload } from 'jsonwebtoken';
+
 import config from '../../config';
-
-if (!config.jwt_secret) {
-  throw new Error('JWT_SECRET is not defined in config.');
-}
-
-if (!config.jwt_refresh_secret) {
-  throw new Error('JWT_REFRESH_SECRET is not defined in config.');
-}
+import { AuthServices } from './auth.service';
 
 const JWT_SECRET = config.jwt_secret;
 const JWT_REFRESH_SECRET = config.jwt_refresh_secret;
@@ -43,6 +36,9 @@ const clearAuthCookies = (res: Response) => {
   res.clearCookie('refreshToken', cookieOptions);
 };
 
+/*
+ * POST /api/v1/auth/login
+ */
 const loginUser: RequestHandler = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -57,6 +53,7 @@ const loginUser: RequestHandler = async (req, res) => {
         success: false,
         message: 'Email and password are required.',
       });
+
       return;
     }
 
@@ -67,6 +64,7 @@ const loginUser: RequestHandler = async (req, res) => {
         success: false,
         message: 'Invalid email or password.',
       });
+
       return;
     }
 
@@ -77,6 +75,7 @@ const loginUser: RequestHandler = async (req, res) => {
         success: false,
         message: 'Invalid email or password.',
       });
+
       return;
     }
 
@@ -94,6 +93,7 @@ const loginUser: RequestHandler = async (req, res) => {
         expiresIn: ACCESS_TOKEN_EXPIRES_IN,
       },
     );
+
     const refreshToken = jwt.sign(
       {
         id: userId,
@@ -129,7 +129,13 @@ const loginUser: RequestHandler = async (req, res) => {
             id: userId,
             name: user.name,
             email: user.email,
+            phone: user.phone,
+            photo: user.photo,
             role: user.role,
+            provider: user.provider,
+            userStatus: user.userStatus,
+            ownerId: user.ownerId,
+            features: user.features,
           },
         },
       });
@@ -143,6 +149,72 @@ const loginUser: RequestHandler = async (req, res) => {
   }
 };
 
+/*
+ * GET /api/v1/auth/me
+ *
+ * authMiddleware accessToken verify করে req.user set করবে।
+ */
+const getCurrentUser: RequestHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: 'Unauthorized: No authenticated user.',
+      });
+
+      return;
+    }
+
+    const user = await AuthServices.getCurrentUserFromDB(userId);
+
+    if (!user) {
+      /*
+       * Token valid হলেও user delete/inactive হয়ে থাকলে
+       * পুরোনো authentication cookies clear করা হবে।
+       */
+      clearAuthCookies(res);
+
+      res.status(401).json({
+        success: false,
+        message: 'User not found or inactive.',
+      });
+
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Current user fetched successfully.',
+      data: {
+        user: {
+          id: user._id.toString(),
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          photo: user.photo,
+          role: user.role,
+          provider: user.provider,
+          userStatus: user.userStatus,
+          ownerId: user.ownerId,
+          features: user.features,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Current user error:', error);
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to load current user.',
+    });
+  }
+};
+
+/*
+ * POST /api/v1/auth/logout
+ */
 const logoutUser: RequestHandler = async (req, res) => {
   try {
     const refreshToken = req.cookies?.refreshToken;
@@ -171,7 +243,10 @@ const logoutUser: RequestHandler = async (req, res) => {
           }
         }
       } catch {
-        // Token invalid/expired হলেও browser cookies clear হবে।
+        /*
+         * Refresh token invalid বা expired হলেও
+         * browser cookies clear হবে।
+         */
       }
     }
 
@@ -188,12 +263,13 @@ const logoutUser: RequestHandler = async (req, res) => {
 
     res.status(500).json({
       success: false,
-      message: 'Logout failed, but local authentication was cleared.',
+      message: 'Logout failed, but authentication cookies were cleared.',
     });
   }
 };
 
 export const AuthController = {
   loginUser,
+  getCurrentUser,
   logoutUser,
 };
