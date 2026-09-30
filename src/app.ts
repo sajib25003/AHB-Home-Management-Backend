@@ -3,11 +3,8 @@ import express, { Application, Request, Response } from 'express';
 import cors, { CorsOptions } from 'cors';
 import cookieParser from 'cookie-parser';
 
-import productRouter from './app/modules/product/product.route';
 import userRouter from './app/modules/user/user.route';
 import authRouter from './app/modules/auth/auth.route';
-import settingsRouter from './app/modules/site-settings/settings.route';
-import messageRouter from './app/modules/messages/messages.route';
 
 const app: Application = express();
 
@@ -41,10 +38,7 @@ app.use(cookieParser());
 
 // Application routes
 app.use('/api/v1/auth', authRouter);
-app.use('/api/v1/products', productRouter);
 app.use('/api/v1/users', userRouter);
-app.use('/api/v1/settings', settingsRouter);
-app.use('/api/v1/messages', messageRouter);
 
 const getAController = (req: Request, res: Response) => {
   res.send({

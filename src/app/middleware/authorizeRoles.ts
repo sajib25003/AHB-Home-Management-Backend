@@ -1,5 +1,6 @@
-import { RequestHandler } from 'express';
-import { TUserRole } from '../modules/user/user.interface';
+import type { RequestHandler } from 'express';
+
+import type { TUserRole } from '../modules/user/user.interface';
 
 const authorizeRoles = (...allowedRoles: TUserRole[]): RequestHandler => {
   return (req, res, next) => {
@@ -8,6 +9,7 @@ const authorizeRoles = (...allowedRoles: TUserRole[]): RequestHandler => {
         success: false,
         message: 'You must be logged in.',
       });
+
       return;
     }
 
@@ -16,6 +18,7 @@ const authorizeRoles = (...allowedRoles: TUserRole[]): RequestHandler => {
         success: false,
         message: 'You are not authorized to perform this action.',
       });
+
       return;
     }
 

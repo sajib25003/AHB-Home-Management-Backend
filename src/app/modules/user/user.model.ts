@@ -1,4 +1,5 @@
 import { model, Schema } from 'mongoose';
+
 import {
   AUTH_PROVIDERS,
   IUser,
@@ -74,11 +75,7 @@ const userSchema = new Schema<IUser>(
 
     password: {
       type: String,
-
-      required: function () {
-        return this.provider === 'credentials';
-      },
-
+      required: [true, 'Password is required'],
       select: false,
     },
 

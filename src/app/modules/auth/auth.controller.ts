@@ -1,8 +1,9 @@
 import bcrypt from 'bcrypt';
-import { RequestHandler, Response } from 'express';
-import jwt, { JwtPayload } from 'jsonwebtoken';
+import type { CookieOptions, RequestHandler, Response } from 'express';
+import jwt, { type JwtPayload } from 'jsonwebtoken';
 
 import config from '../../config';
+import type { TUserRole } from '../user/user.interface';
 import { AuthServices } from './auth.service';
 
 const JWT_SECRET = config.jwt_secret;
@@ -16,24 +17,104 @@ if (!JWT_REFRESH_SECRET) {
   throw new Error('JWT_REFRESH_SECRET is not defined in config.');
 }
 
-const ACCESS_TOKEN_EXPIRES_IN = '15m';
-const REFRESH_TOKEN_EXPIRES_IN = '7d';
+// for testing
+const ACCESS_TOKEN_EXPIRES_IN = '20s' as const;
+const ACCESS_TOKEN_MAX_AGE = 20 * 1000;
 
-const ACCESS_TOKEN_MAX_AGE = 15 * 60 * 1000;
+// const ACCESS_TOKEN_EXPIRES_IN = '15m' as const;
+const REFRESH_TOKEN_EXPIRES_IN = '7d' as const;
+
+// const ACCESS_TOKEN_MAX_AGE = 15 * 60 * 1000;
 const REFRESH_TOKEN_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = config.node_env === 'production';
 
-const cookieOptions = {
+const cookieOptions: CookieOptions = {
   httpOnly: true,
   secure: isProduction,
-  sameSite: isProduction ? ('none' as const) : ('lax' as const),
+  sameSite: isProduction ? 'none' : 'lax',
   path: '/',
+};
+
+type TTokenUser = {
+  id: string;
+  email: string;
+  role: TUserRole;
+};
+
+type TDecodedToken = JwtPayload & {
+  id?: string;
+};
+
+const createAccessToken = (user: TTokenUser) => {
+  return jwt.sign(
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    },
+    JWT_SECRET,
+    {
+      subject: user.id,
+      expiresIn: ACCESS_TOKEN_EXPIRES_IN,
+    },
+  );
+};
+
+const createRefreshToken = (user: TTokenUser) => {
+  return jwt.sign(
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    },
+    JWT_REFRESH_SECRET,
+    {
+      subject: user.id,
+      expiresIn: REFRESH_TOKEN_EXPIRES_IN,
+    },
+  );
+};
+
+const getUserIdFromToken = (token: string, secret: string): string | null => {
+  const decoded = jwt.verify(token, secret) as TDecodedToken;
+
+  const userId = typeof decoded.sub === 'string' ? decoded.sub : decoded.id;
+
+  return typeof userId === 'string' ? userId : null;
+};
+
+const setAuthCookies = (
+  res: Response,
+  accessToken: string,
+  refreshToken: string,
+) => {
+  res.cookie('accessToken', accessToken, {
+    ...cookieOptions,
+    maxAge: ACCESS_TOKEN_MAX_AGE,
+  });
+
+  res.cookie('refreshToken', refreshToken, {
+    ...cookieOptions,
+    maxAge: REFRESH_TOKEN_MAX_AGE,
+  });
 };
 
 const clearAuthCookies = (res: Response) => {
   res.clearCookie('accessToken', cookieOptions);
   res.clearCookie('refreshToken', cookieOptions);
+};
+
+const sendRefreshUnauthorized = (
+  res: Response,
+  message = 'Your session has expired. Please log in again.',
+) => {
+  clearAuthCookies(res);
+
+  res.status(401).json({
+    success: false,
+    message,
+  });
 };
 
 /*
@@ -79,66 +160,42 @@ const loginUser: RequestHandler = async (req, res) => {
       return;
     }
 
-    const userId = user._id.toString();
+    const tokenUser: TTokenUser = {
+      id: user._id.toString(),
+      email: user.email,
+      role: user.role,
+    };
 
-    const accessToken = jwt.sign(
-      {
-        id: userId,
-        email: user.email,
-        role: user.role,
-      },
-      JWT_SECRET,
-      {
-        subject: userId,
-        expiresIn: ACCESS_TOKEN_EXPIRES_IN,
-      },
-    );
-
-    const refreshToken = jwt.sign(
-      {
-        id: userId,
-        email: user.email,
-        role: user.role,
-      },
-      JWT_REFRESH_SECRET,
-      {
-        subject: userId,
-        expiresIn: REFRESH_TOKEN_EXPIRES_IN,
-      },
-    );
+    const accessToken = createAccessToken(tokenUser);
+    const refreshToken = createRefreshToken(tokenUser);
 
     const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
 
-    await AuthServices.updateRefreshTokenHashInDB(userId, refreshTokenHash);
+    await AuthServices.updateRefreshTokenHashInDB(
+      tokenUser.id,
+      refreshTokenHash,
+    );
 
-    res
-      .cookie('accessToken', accessToken, {
-        ...cookieOptions,
-        maxAge: ACCESS_TOKEN_MAX_AGE,
-      })
-      .cookie('refreshToken', refreshToken, {
-        ...cookieOptions,
-        maxAge: REFRESH_TOKEN_MAX_AGE,
-      })
-      .status(200)
-      .json({
-        success: true,
-        message: 'Login successful.',
-        data: {
-          user: {
-            id: userId,
-            name: user.name,
-            email: user.email,
-            phone: user.phone,
-            photo: user.photo,
-            role: user.role,
-            provider: user.provider,
-            userStatus: user.userStatus,
-            ownerId: user.ownerId,
-            features: user.features,
-          },
+    setAuthCookies(res, accessToken, refreshToken);
+
+    res.status(200).json({
+      success: true,
+      message: 'Login successful.',
+      data: {
+        user: {
+          id: tokenUser.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          photo: user.photo,
+          role: user.role,
+          provider: user.provider,
+          userStatus: user.userStatus,
+          ownerId: user.ownerId,
+          features: user.features,
         },
-      });
+      },
+    });
   } catch (error) {
     console.error('Login error:', error);
 
@@ -150,9 +207,88 @@ const loginUser: RequestHandler = async (req, res) => {
 };
 
 /*
+ * POST /api/v1/auth/refresh-token
+ */
+const refreshAccessToken: RequestHandler = async (req, res) => {
+  try {
+    const currentRefreshToken = req.cookies?.refreshToken;
+
+    if (typeof currentRefreshToken !== 'string') {
+      sendRefreshUnauthorized(res, 'Refresh token was not provided.');
+      return;
+    }
+
+    let userId: string | null = null;
+
+    try {
+      userId = getUserIdFromToken(currentRefreshToken, JWT_REFRESH_SECRET);
+    } catch {
+      sendRefreshUnauthorized(res, 'Refresh token is invalid or expired.');
+      return;
+    }
+
+    if (!userId) {
+      sendRefreshUnauthorized(res, 'Refresh token payload is invalid.');
+      return;
+    }
+
+    const user = await AuthServices.getUserByIdFromDB(userId);
+
+    if (!user || !user.refreshTokenHash) {
+      sendRefreshUnauthorized(res);
+      return;
+    }
+
+    const isRefreshTokenMatched = await bcrypt.compare(
+      currentRefreshToken,
+      user.refreshTokenHash,
+    );
+
+    if (!isRefreshTokenMatched) {
+      sendRefreshUnauthorized(res, 'Refresh token is no longer valid.');
+      return;
+    }
+
+    const tokenUser: TTokenUser = {
+      id: user._id.toString(),
+      email: user.email,
+      role: user.role,
+    };
+
+    /*
+     * Refresh token rotation:
+     * নতুন access এবং refresh token দুটোই দেওয়া হচ্ছে।
+     */
+    const newAccessToken = createAccessToken(tokenUser);
+    const newRefreshToken = createRefreshToken(tokenUser);
+
+    const newRefreshTokenHash = await bcrypt.hash(newRefreshToken, 12);
+
+    await AuthServices.updateRefreshTokenHashInDB(
+      tokenUser.id,
+      newRefreshTokenHash,
+    );
+
+    setAuthCookies(res, newAccessToken, newRefreshToken);
+
+    res.status(200).json({
+      success: true,
+      message: 'Session refreshed successfully.',
+    });
+  } catch (error) {
+    console.error('Refresh token error:', error);
+
+    clearAuthCookies(res);
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to refresh authentication session.',
+    });
+  }
+};
+
+/*
  * GET /api/v1/auth/me
- *
- * authMiddleware accessToken verify করে req.user set করবে।
  */
 const getCurrentUser: RequestHandler = async (req, res) => {
   try {
@@ -170,10 +306,6 @@ const getCurrentUser: RequestHandler = async (req, res) => {
     const user = await AuthServices.getCurrentUserFromDB(userId);
 
     if (!user) {
-      /*
-       * Token valid হলেও user delete/inactive হয়ে থাকলে
-       * পুরোনো authentication cookies clear করা হবে।
-       */
       clearAuthCookies(res);
 
       res.status(401).json({
@@ -219,16 +351,11 @@ const logoutUser: RequestHandler = async (req, res) => {
   try {
     const refreshToken = req.cookies?.refreshToken;
 
-    if (refreshToken) {
+    if (typeof refreshToken === 'string') {
       try {
-        const decoded = jwt.verify(
-          refreshToken,
-          JWT_REFRESH_SECRET,
-        ) as JwtPayload;
+        const userId = getUserIdFromToken(refreshToken, JWT_REFRESH_SECRET);
 
-        const userId = decoded.sub;
-
-        if (typeof userId === 'string') {
+        if (userId) {
           const user = await AuthServices.getUserByIdFromDB(userId);
 
           if (user?.refreshTokenHash) {
@@ -243,10 +370,7 @@ const logoutUser: RequestHandler = async (req, res) => {
           }
         }
       } catch {
-        /*
-         * Refresh token invalid বা expired হলেও
-         * browser cookies clear হবে।
-         */
+        // Invalid বা expired হলেও cookies clear হবে।
       }
     }
 
@@ -270,6 +394,7 @@ const logoutUser: RequestHandler = async (req, res) => {
 
 export const AuthController = {
   loginUser,
+  refreshAccessToken,
   getCurrentUser,
   logoutUser,
 };

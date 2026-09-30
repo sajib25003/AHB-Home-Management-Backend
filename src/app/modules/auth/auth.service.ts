@@ -5,34 +5,25 @@ import { UserModel } from '../user/user.model';
 const getUserByEmailFromDB = async (email: string) => {
   return UserModel.findOne({
     email: email.trim().toLowerCase(),
-
     userStatus: 'active',
-
-    // পুরোনো document-এ isActive না থাকলেও user পাওয়া যাবে
-    isActive: {
-      $ne: false,
-    },
   })
     .select('+password')
     .exec();
 };
 
-/*
- * Logout-এর সময় refreshTokenHash প্রয়োজন।
- */
 const getUserByIdFromDB = async (userId: string) => {
   if (!Types.ObjectId.isValid(userId)) {
     return null;
   }
 
-  return UserModel.findById(userId).select('+refreshTokenHash').exec();
+  return UserModel.findOne({
+    _id: userId,
+    userStatus: 'active',
+  })
+    .select('+refreshTokenHash')
+    .exec();
 };
 
-/*
- * GET /auth/me endpoint-এর জন্য।
- *
- * এখানে password এবং refreshTokenHash return হবে না।
- */
 const getCurrentUserFromDB = async (userId: string) => {
   if (!Types.ObjectId.isValid(userId)) {
     return null;

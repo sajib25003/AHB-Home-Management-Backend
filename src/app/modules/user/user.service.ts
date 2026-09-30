@@ -1,6 +1,14 @@
 import bcrypt from 'bcrypt';
 import { FilterQuery, Types } from 'mongoose';
-import { IUser, TUserRole } from './user.interface';
+
+import {
+  IUser,
+  TAuthProvider,
+  TUserRole,
+  TUserStatus,
+  UserFeatures,
+  UserName,
+} from './user.interface';
 import { UserModel } from './user.model';
 
 export type TAuthenticatedUser = {
@@ -8,32 +16,95 @@ export type TAuthenticatedUser = {
   role: TUserRole;
 };
 
-export type TCreateUserPayload = Omit<
-  IUser,
-  | 'role'
-  | 'userStatus'
-  | 'createdBy'
-  | 'ownerId'
-  | 'features'
-  | 'refreshTokenHash'
-  | 'createdAt'
-  | 'updatedAt'
-> & {
+export type TCreateUserPayload = {
+  name: UserName;
+  email: string;
+
+  phone?: string;
+  photo?: string | null;
+  address?: string;
+  dateOfBirth?: Date;
+
+  password?: string;
+  provider?: TAuthProvider;
+
   role?: TUserRole;
   ownerId?: string | Types.ObjectId | null;
+
+  features?: Partial<UserFeatures>;
 };
 
 export type TUpdateUserPayload = Partial<
   Pick<
     IUser,
-    'name' | 'phone' | 'photo' | 'address' | 'dateOfBirth' | 'userStatus'
+    | 'name'
+    | 'phone'
+    | 'photo'
+    | 'address'
+    | 'dateOfBirth'
+    | 'userStatus'
+    | 'role'
   >
->;
+> & {
+  ownerId?: string | Types.ObjectId | null;
+  features?: Partial<UserFeatures>;
+};
+
+const GLOBAL_ROLES: TUserRole[] = ['superAdmin', 'admin'];
+
+const CREATABLE_ROLES: Record<TUserRole, TUserRole[]> = {
+  superAdmin: ['superAdmin', 'admin', 'owner', 'tenant', 'user'],
+
+  admin: ['owner', 'tenant', 'user'],
+
+  owner: ['tenant'],
+
+  tenant: [],
+  user: [],
+};
 
 const validateObjectId = (id: string, fieldName = 'User ID') => {
   if (!Types.ObjectId.isValid(id)) {
     throw new Error(`${fieldName} is invalid.`);
   }
+};
+
+const isGlobalRole = (role: TUserRole) => {
+  return GLOBAL_ROLES.includes(role);
+};
+
+const getDefaultCreatedRole = (actorRole: TUserRole): TUserRole => {
+  if (actorRole === 'owner') {
+    return 'tenant';
+  }
+
+  return 'user';
+};
+
+const resolveTenantOwnerId = async (
+  requestedOwnerId: string | Types.ObjectId | null | undefined,
+  actor: TAuthenticatedUser,
+) => {
+  const ownerId =
+    actor.role === 'owner' ? actor.id : requestedOwnerId?.toString();
+
+  if (!ownerId) {
+    throw new Error('An owner must be assigned to the tenant.');
+  }
+
+  validateObjectId(ownerId, 'Owner ID');
+
+  const owner = await UserModel.findOne({
+    _id: ownerId,
+    role: 'owner',
+    userStatus: 'active',
+  }).select('_id');
+
+  if (!owner) {
+    throw new Error('A valid active owner was not found.');
+  }
+
+  return owner._id;
 };
 
 const buildAccessibleUserFilter = (
@@ -43,13 +114,13 @@ const buildAccessibleUserFilter = (
   validateObjectId(id);
   validateObjectId(actor.id);
 
-  if (actor.role === 'superAdmin') {
+  if (isGlobalRole(actor.role)) {
     return {
       _id: id,
     };
   }
 
-  if (actor.role === 'admin') {
+  if (actor.role === 'owner') {
     return {
       _id: id,
 
@@ -74,56 +145,80 @@ const buildAccessibleUserFilter = (
   };
 };
 
+const canManageTargetStatus = (
+  actor: TAuthenticatedUser,
+  target: IUser & {
+    _id: Types.ObjectId;
+  },
+) => {
+  if (actor.role === 'superAdmin') {
+    return true;
+  }
+
+  if (actor.role === 'admin') {
+    return !['superAdmin', 'admin'].includes(target.role);
+  }
+
+  if (actor.role === 'owner') {
+    return target.role === 'tenant' && target.ownerId?.toString() === actor.id;
+  }
+
+  return false;
+};
+
 const createUserIntoDB = async (
   payload: TCreateUserPayload,
   actor: TAuthenticatedUser,
 ) => {
-  if (!['superAdmin', 'admin'].includes(actor.role)) {
-    throw new Error('You are not authorized to create users.');
-  }
-
   validateObjectId(actor.id, 'Creator ID');
 
-  const requestedRole =
-    payload.role || (actor.role === 'admin' ? 'tenant' : 'user');
+  const requestedRole = payload.role ?? getDefaultCreatedRole(actor.role);
 
-  if (actor.role === 'admin' && requestedRole !== 'tenant') {
-    throw new Error('Admin can only create tenant accounts.');
+  const allowedRoles = CREATABLE_ROLES[actor.role];
+
+  if (!allowedRoles.includes(requestedRole)) {
+    throw new Error(
+      `You are not authorized to create a ${requestedRole} account.`,
+    );
+  }
+
+  if (!payload.name) {
+    throw new Error('User name is required.');
+  }
+
+  if (typeof payload.email !== 'string' || !payload.email.trim()) {
+    throw new Error('Email is required.');
+  }
+
+  if (!payload.password) {
+    throw new Error('Password is required for credentials account.');
   }
 
   let ownerId: Types.ObjectId | null = null;
 
   if (requestedRole === 'tenant') {
-    const requestedOwnerId =
-      actor.role === 'admin' ? actor.id : payload.ownerId?.toString();
-
-    if (!requestedOwnerId) {
-      throw new Error('An admin/owner must be assigned to the tenant.');
-    }
-
-    validateObjectId(requestedOwnerId, 'Owner ID');
-
-    const owner = await UserModel.findOne({
-      _id: requestedOwnerId,
-      role: 'admin',
-      userStatus: 'active',
-    }).select('_id');
-
-    if (!owner) {
-      throw new Error('A valid active admin/owner was not found.');
-    }
-
-    ownerId = owner._id;
+    ownerId = await resolveTenantOwnerId(payload.ownerId, actor);
   }
+
+  const personalCashflow =
+    requestedRole === 'user' ||
+    (actor.role === 'superAdmin' &&
+      payload.features?.personalCashflow === true);
+
+  const passwordHash = await bcrypt.hash(payload.password, 12);
 
   const userData: Partial<IUser> = {
     name: payload.name,
+
     email: payload.email.trim().toLowerCase(),
+
     phone: payload.phone,
     photo: payload.photo,
     address: payload.address,
     dateOfBirth: payload.dateOfBirth,
-    provider: payload.provider,
+
+    password: passwordHash,
+    provider: 'credentials',
 
     role: requestedRole,
     userStatus: 'active',
@@ -132,21 +227,11 @@ const createUserIntoDB = async (
     ownerId,
 
     features: {
-      personalCashflow: false,
+      personalCashflow,
     },
 
     refreshTokenHash: null,
   };
-
-  if (payload.provider === 'credentials') {
-    if (!payload.password) {
-      throw new Error('Password is required for credentials account.');
-    }
-
-    userData.password = await bcrypt.hash(payload.password, 12);
-  } else {
-    delete userData.password;
-  }
 
   return UserModel.create(userData);
 };
@@ -156,9 +241,9 @@ const getAllUsersFromDB = async (actor: TAuthenticatedUser) => {
 
   let filter: FilterQuery<IUser>;
 
-  if (actor.role === 'superAdmin') {
+  if (isGlobalRole(actor.role)) {
     filter = {};
-  } else if (actor.role === 'admin') {
+  } else if (actor.role === 'owner') {
     filter = {
       $or: [
         {
@@ -171,7 +256,6 @@ const getAllUsersFromDB = async (actor: TAuthenticatedUser) => {
       ],
     };
   } else {
-    // Tenant এবং general user শুধু নিজের তথ্য পাবে
     filter = {
       _id: actor.id,
     };
@@ -179,32 +263,20 @@ const getAllUsersFromDB = async (actor: TAuthenticatedUser) => {
 
   return UserModel.find(filter)
     .populate('createdBy', 'name email role')
-    .populate('ownerId', 'name email phone')
-    .sort({ createdAt: -1 })
+    .populate('ownerId', 'name email phone role')
+    .sort({
+      createdAt: -1,
+    })
     .lean();
 };
 
 const getSingleUserFromDB = async (id: string, actor: TAuthenticatedUser) => {
   const filter = buildAccessibleUserFilter(id, actor);
 
-  const user = await UserModel.findOne(filter);
-
-  if (!user) {
-    return null;
-  }
-
-  await user.populate([
-    {
-      path: 'createdBy',
-      select: 'name email role',
-    },
-    {
-      path: 'ownerId',
-      select: 'name email phone role',
-    },
-  ]);
-
-  return user;
+  return UserModel.findOne(filter)
+    .populate('createdBy', 'name email role')
+    .populate('ownerId', 'name email phone role')
+    .exec();
 };
 
 const updateUserInDB = async (
@@ -214,14 +286,13 @@ const updateUserInDB = async (
 ) => {
   const filter = buildAccessibleUserFilter(id, actor);
 
-  /*
-   * Authorization check করার সময় ownerId populate করছি না।
-   */
   const existingUser = await UserModel.findOne(filter);
 
   if (!existingUser) {
     return null;
   }
+
+  const isOwnAccount = existingUser._id.toString() === actor.id;
 
   const updateData: Partial<IUser> = {};
 
@@ -246,17 +317,60 @@ const updateUserInDB = async (
   }
 
   if (data.userStatus !== undefined) {
-    const canUpdateStatus =
-      actor.role === 'superAdmin' ||
-      (actor.role === 'admin' &&
-        existingUser.role === 'tenant' &&
-        existingUser.ownerId?.toString() === actor.id);
+    if (isOwnAccount && data.userStatus === 'inactive') {
+      throw new Error('You cannot deactivate your own account.');
+    }
 
-    if (!canUpdateStatus) {
+    if (!canManageTargetStatus(actor, existingUser)) {
       throw new Error('You are not authorized to change user status.');
     }
 
-    updateData.userStatus = data.userStatus;
+    updateData.userStatus = data.userStatus as TUserStatus;
+  }
+
+  if (data.role !== undefined && data.role !== existingUser.role) {
+    if (isOwnAccount) {
+      throw new Error('You cannot change your own role.');
+    }
+
+    const canChangeRole =
+      actor.role === 'superAdmin' ||
+      (actor.role === 'admin' &&
+        !['superAdmin', 'admin'].includes(existingUser.role) &&
+        ['owner', 'tenant', 'user'].includes(data.role));
+
+    if (!canChangeRole) {
+      throw new Error('You are not authorized to change this user role.');
+    }
+
+    updateData.role = data.role;
+
+    if (data.role === 'tenant') {
+      updateData.ownerId = await resolveTenantOwnerId(
+        data.ownerId ?? existingUser.ownerId,
+        actor,
+      );
+    } else {
+      updateData.ownerId = null;
+    }
+  } else if (data.ownerId !== undefined && existingUser.role === 'tenant') {
+    if (actor.role !== 'superAdmin' && actor.role !== 'admin') {
+      throw new Error('You are not authorized to reassign tenant ownership.');
+    }
+
+    updateData.ownerId = await resolveTenantOwnerId(data.ownerId, actor);
+  }
+
+  if (data.features?.personalCashflow !== undefined) {
+    if (actor.role !== 'superAdmin') {
+      throw new Error(
+        'Only a super admin can change personal cashflow access.',
+      );
+    }
+
+    updateData.features = {
+      personalCashflow: data.features.personalCashflow,
+    };
   }
 
   return UserModel.findOneAndUpdate(
@@ -268,7 +382,10 @@ const updateUserInDB = async (
       new: true,
       runValidators: true,
     },
-  );
+  )
+    .populate('createdBy', 'name email role')
+    .populate('ownerId', 'name email phone role')
+    .exec();
 };
 
 const deleteUserFromDB = async (id: string, actor: TAuthenticatedUser) => {
@@ -284,13 +401,7 @@ const deleteUserFromDB = async (id: string, actor: TAuthenticatedUser) => {
     throw new Error('You cannot deactivate your own account.');
   }
 
-  const canDeactivate =
-    actor.role === 'superAdmin' ||
-    (actor.role === 'admin' &&
-      existingUser.role === 'tenant' &&
-      existingUser.ownerId?.toString() === actor.id);
-
-  if (!canDeactivate) {
+  if (!canManageTargetStatus(actor, existingUser)) {
     throw new Error('You are not authorized to deactivate this user.');
   }
 
@@ -305,8 +416,9 @@ const deleteUserFromDB = async (id: string, actor: TAuthenticatedUser) => {
     {
       new: true,
     },
-  );
+  ).exec();
 };
+
 export const UserServices = {
   createUserIntoDB,
   getAllUsersFromDB,
