@@ -1,6 +1,9 @@
 import bcrypt from 'bcrypt';
 import { FilterQuery, Types } from 'mongoose';
 
+import { ApartmentModel } from '../apartment/apartment.model';
+import { PropertyModel } from '../property/property.model';
+import { TenancyModel } from '../tenancy/tenancy.model';
 import { IUser, TUserRole } from './user.interface';
 import { UserModel } from './user.model';
 
@@ -38,6 +41,10 @@ export type TUserDependencySummary = {
   ownedUsers: number;
   createdUsers: number;
   relatedUsers: number;
+  properties: number;
+  apartments: number;
+  tenancies: number;
+  activeTenancies: number;
   total: number;
 };
 
@@ -305,7 +312,15 @@ const getUserDependencies = async (
 ): Promise<TUserDependencySummary> => {
   const objectId = new Types.ObjectId(userId);
 
-  const [ownedUsers, createdUsers, relatedUsers] = await Promise.all([
+  const [
+    ownedUsers,
+    createdUsers,
+    relatedUsers,
+    properties,
+    apartments,
+    tenancies,
+    activeTenancies,
+  ] = await Promise.all([
     UserModel.countDocuments({
       ownerId: objectId,
     }),
@@ -316,20 +331,36 @@ const getUserDependencies = async (
       _id: { $ne: objectId },
       $or: [{ ownerId: objectId }, { createdBy: objectId }],
     }),
+    PropertyModel.countDocuments({
+      $or: [{ ownerId: objectId }, { createdBy: objectId }],
+    }),
+    ApartmentModel.countDocuments({
+      $or: [{ createdBy: objectId }, { deletedBy: objectId }],
+    }),
+    TenancyModel.countDocuments({
+      $or: [
+        { tenantId: objectId },
+        { ownerId: objectId },
+        { createdBy: objectId },
+        { endedBy: objectId },
+      ],
+    }),
+    TenancyModel.countDocuments({
+      status: 'active',
+      $or: [{ tenantId: objectId }, { ownerId: objectId }],
+    }),
   ]);
 
-  /*
-   * Apartment এবং rent module তৈরি হলে তাদের dependency count এখানে যোগ করুন।
-   * উদাহরণ:
-   * const apartments = await ApartmentModel.countDocuments({ ownerId: objectId });
-   * const rentRecords = await RentModel.countDocuments({ userId: objectId });
-   */
-  const total = relatedUsers;
+  const total = relatedUsers + properties + apartments + tenancies;
 
   return {
     ownedUsers,
     createdUsers,
     relatedUsers,
+    properties,
+    apartments,
+    tenancies,
+    activeTenancies,
     total,
   };
 };
@@ -359,6 +390,12 @@ const deleteUserFromDB = async (
   }
 
   const dependencies = await getUserDependencies(id);
+
+  if (dependencies.activeTenancies > 0) {
+    throw new Error(
+      'Cannot delete a user with an active tenancy. Complete the tenant move-out first.',
+    );
+  }
 
   if (dependencies.total === 0) {
     const deletedUser = await UserModel.findOneAndDelete(filter);
