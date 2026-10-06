@@ -1,6 +1,7 @@
 import { FilterQuery, Types } from 'mongoose';
 
 import { ApartmentModel } from '../apartment/apartment.model';
+import { TenancyModel } from '../tenancy/tenancy.model';
 import { TUserRole } from '../user/user.interface';
 import { UserModel } from '../user/user.model';
 import {
@@ -264,6 +265,17 @@ const deletePropertyFromDB = async (
 
   if (!property) return null;
 
+  const activeTenancyCount = await TenancyModel.countDocuments({
+    propertyId: property._id,
+    status: 'active',
+  });
+
+  if (activeTenancyCount > 0) {
+    throw new Error(
+      'Cannot delete a property while one or more apartments have active tenants.',
+    );
+  }
+
   const apartmentDependencyCount = await ApartmentModel.countDocuments({
     propertyId: property._id,
   });
@@ -277,6 +289,7 @@ const deletePropertyFromDB = async (
       deletionType: 'hard' as const,
       property: deletedProperty,
       apartmentDependencyCount,
+      activeTenancyCount,
     };
   }
 
@@ -301,6 +314,7 @@ const deletePropertyFromDB = async (
     deletionType: 'soft' as const,
     property: archivedProperty,
     apartmentDependencyCount,
+    activeTenancyCount,
   };
 };
 

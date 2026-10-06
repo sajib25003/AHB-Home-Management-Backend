@@ -13,6 +13,9 @@ export interface IApartment {
 
   createdAt?: Date;
   updatedAt?: Date;
+
+  // Populated virtual; MongoDB document-এ আলাদা করে save হয় না।
+  currentTenancy?: unknown;
 }
 
 export type TCreateApartmentPayload = {

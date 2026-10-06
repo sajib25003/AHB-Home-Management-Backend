@@ -75,6 +75,7 @@ const sendApartmentError = (
     if (
       normalizedMessage.includes('invalid') ||
       normalizedMessage.includes('required') ||
+      normalizedMessage.includes('cannot delete') ||
       normalizedMessage.includes('cannot be empty') ||
       normalizedMessage.includes('no valid')
     ) {
@@ -265,7 +266,10 @@ const deleteApartment: RequestHandler = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Apartment permanently deleted.',
+      message:
+        result.deletionType === 'soft'
+          ? 'Apartment archived because tenancy history is connected.'
+          : 'Apartment permanently deleted.',
       data: result,
     });
   } catch (error) {

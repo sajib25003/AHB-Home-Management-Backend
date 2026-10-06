@@ -3,12 +3,22 @@ import { FilterQuery, Types } from 'mongoose';
 import { IProperty } from '../property/property.interface';
 import type { TPropertyActor } from '../property/property.service';
 import { PropertyModel } from '../property/property.model';
+import { TenancyModel } from '../tenancy/tenancy.model';
 import {
   IApartment,
   TCreateApartmentPayload,
   TUpdateApartmentPayload,
 } from './apartment.interface';
 import { ApartmentModel } from './apartment.model';
+
+const currentTenancyPopulate = {
+  path: 'currentTenancy',
+  select: 'tenantId startDate status note',
+  populate: {
+    path: 'tenantId',
+    select: 'name email phone photo userStatus role',
+  },
+};
 
 const validateObjectId = (id: string, fieldName: string) => {
   if (!Types.ObjectId.isValid(id)) {
@@ -111,6 +121,7 @@ const getApartmentsByPropertyFromDB = async (
     isDeleted: { $ne: true },
   })
     .populate('createdBy', 'name email role')
+    .populate(currentTenancyPopulate)
     .sort({ apartmentNumber: 1 })
     .lean();
 
@@ -137,6 +148,7 @@ const getSingleApartmentFromDB = async (
       path: 'createdBy',
       select: 'name email role',
     },
+    currentTenancyPopulate,
   ]);
 
   return apartment;
@@ -181,7 +193,9 @@ const updateApartmentInDB = async (
       new: true,
       runValidators: true,
     },
-  ).populate('createdBy', 'name email role');
+  )
+    .populate('createdBy', 'name email role')
+    .populate(currentTenancyPopulate);
 };
 
 const deleteApartmentFromDB = async (
@@ -192,20 +206,61 @@ const deleteApartmentFromDB = async (
 
   if (!apartment) return null;
 
-  /*
-   * Tenancy/Rent module এখনো নেই, তাই apartment-এর dependency নেই।
-   * Tenancy module যোগ হলে dependency count করে soft-delete করতে হবে।
-   */
-  const deletedApartment = await ApartmentModel.findOneAndDelete({
-    _id: apartment._id,
-    isDeleted: { $ne: true },
-  });
+  const [activeTenancyCount, tenancyHistoryCount] = await Promise.all([
+    TenancyModel.countDocuments({
+      apartmentId: apartment._id,
+      status: 'active',
+    }),
+    TenancyModel.countDocuments({
+      apartmentId: apartment._id,
+    }),
+  ]);
 
-  if (!deletedApartment) return null;
+  if (activeTenancyCount > 0) {
+    throw new Error(
+      'Cannot delete an apartment with an active tenant. End the tenancy first.',
+    );
+  }
+
+  if (tenancyHistoryCount === 0) {
+    const deletedApartment = await ApartmentModel.findOneAndDelete({
+      _id: apartment._id,
+      isDeleted: { $ne: true },
+    });
+
+    if (!deletedApartment) return null;
+
+    return {
+      deletionType: 'hard' as const,
+      apartment: deletedApartment,
+      tenancyHistoryCount,
+    };
+  }
+
+  const archivedApartment = await ApartmentModel.findOneAndUpdate(
+    {
+      _id: apartment._id,
+      isDeleted: { $ne: true },
+    },
+    {
+      $set: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        deletedBy: new Types.ObjectId(actor.id),
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    },
+  );
+
+  if (!archivedApartment) return null;
 
   return {
-    deletionType: 'hard' as const,
-    apartment: deletedApartment,
+    deletionType: 'soft' as const,
+    apartment: archivedApartment,
+    tenancyHistoryCount,
   };
 };
 

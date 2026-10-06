@@ -52,8 +52,20 @@ const apartmentSchema = new Schema<IApartment>(
   {
     timestamps: true,
     versionKey: false,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   },
 );
+
+apartmentSchema.virtual('currentTenancy', {
+  ref: 'Tenancy',
+  localField: '_id',
+  foreignField: 'apartmentId',
+  justOne: true,
+  match: {
+    status: 'active',
+  },
+});
 
 apartmentSchema.index({
   propertyId: 1,

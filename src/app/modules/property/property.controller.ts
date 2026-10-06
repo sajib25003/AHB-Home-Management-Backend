@@ -77,6 +77,7 @@ const sendPropertyError = (
     if (
       normalizedMessage.includes('invalid') ||
       normalizedMessage.includes('required') ||
+      normalizedMessage.includes('cannot delete') ||
       normalizedMessage.includes('cannot be empty') ||
       normalizedMessage.includes('must be selected') ||
       normalizedMessage.includes('no valid')
