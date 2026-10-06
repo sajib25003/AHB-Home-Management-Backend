@@ -1,5 +1,4 @@
 import { model, Schema } from 'mongoose';
-
 import {
   AUTH_PROVIDERS,
   IUser,
@@ -15,13 +14,11 @@ const userSchema = new Schema<IUser>(
         required: [true, 'First name is required'],
         trim: true,
       },
-
       middleName: {
         type: String,
         default: null,
         trim: true,
       },
-
       lastName: {
         type: String,
         required: [true, 'Last name is required'],
@@ -75,7 +72,9 @@ const userSchema = new Schema<IUser>(
 
     password: {
       type: String,
-      required: [true, 'Password is required'],
+      required: function () {
+        return this.provider === 'credentials';
+      },
       select: false,
     },
 
@@ -98,7 +97,6 @@ const userSchema = new Schema<IUser>(
       ref: 'User',
       default: null,
       index: true,
-
       required: function () {
         return this.role === 'tenant';
       },
@@ -116,6 +114,23 @@ const userSchema = new Schema<IUser>(
       default: null,
       select: false,
     },
+
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+
+    deletedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -124,11 +139,13 @@ const userSchema = new Schema<IUser>(
 );
 
 userSchema.index({
+  isDeleted: 1,
   role: 1,
   userStatus: 1,
 });
 
 userSchema.index({
+  isDeleted: 1,
   ownerId: 1,
   role: 1,
   userStatus: 1,

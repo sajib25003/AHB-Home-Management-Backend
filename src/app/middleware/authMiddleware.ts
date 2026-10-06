@@ -19,7 +19,6 @@ type TAccessTokenPayload = JwtPayload & {
 const authMiddleware: RequestHandler = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-
     const bearerToken = authHeader?.startsWith('Bearer ')
       ? authHeader.split(' ')[1]
       : undefined;
@@ -35,7 +34,6 @@ const authMiddleware: RequestHandler = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET) as TAccessTokenPayload;
-
     const userId = typeof decoded.sub === 'string' ? decoded.sub : decoded.id;
 
     if (!userId) {
@@ -49,6 +47,7 @@ const authMiddleware: RequestHandler = async (req, res, next) => {
     const user = await UserModel.findOne({
       _id: userId,
       userStatus: 'active',
+      isDeleted: { $ne: true },
     }).select('_id email role');
 
     if (!user) {

@@ -1,14 +1,7 @@
 import bcrypt from 'bcrypt';
 import { FilterQuery, Types } from 'mongoose';
 
-import {
-  IUser,
-  TAuthProvider,
-  TUserRole,
-  TUserStatus,
-  UserFeatures,
-  UserName,
-} from './user.interface';
+import { IUser, TUserRole } from './user.interface';
 import { UserModel } from './user.model';
 
 export type TAuthenticatedUser = {
@@ -16,51 +9,42 @@ export type TAuthenticatedUser = {
   role: TUserRole;
 };
 
-export type TCreateUserPayload = {
-  name: UserName;
-  email: string;
-
-  phone?: string;
-  photo?: string | null;
-  address?: string;
-  dateOfBirth?: Date;
-
-  password?: string;
-  provider?: TAuthProvider;
-
+export type TCreateUserPayload = Omit<
+  IUser,
+  | 'role'
+  | 'userStatus'
+  | 'createdBy'
+  | 'ownerId'
+  | 'features'
+  | 'refreshTokenHash'
+  | 'isDeleted'
+  | 'deletedAt'
+  | 'deletedBy'
+  | 'createdAt'
+  | 'updatedAt'
+> & {
   role?: TUserRole;
   ownerId?: string | Types.ObjectId | null;
-
-  features?: Partial<UserFeatures>;
 };
 
 export type TUpdateUserPayload = Partial<
   Pick<
     IUser,
-    | 'name'
-    | 'phone'
-    | 'photo'
-    | 'address'
-    | 'dateOfBirth'
-    | 'userStatus'
-    | 'role'
+    'name' | 'phone' | 'photo' | 'address' | 'dateOfBirth' | 'userStatus'
   >
-> & {
-  ownerId?: string | Types.ObjectId | null;
-  features?: Partial<UserFeatures>;
+>;
+
+export type TUserDependencySummary = {
+  ownedUsers: number;
+  createdUsers: number;
+  relatedUsers: number;
+  total: number;
 };
 
-const GLOBAL_ROLES: TUserRole[] = ['superAdmin', 'admin'];
-
-const CREATABLE_ROLES: Record<TUserRole, TUserRole[]> = {
-  superAdmin: ['superAdmin', 'admin', 'owner', 'tenant', 'user'],
-
-  admin: ['owner', 'tenant', 'user'],
-
-  owner: ['tenant'],
-
-  tenant: [],
-  user: [],
+export type TDeleteUserResult = {
+  deletionType: 'hard' | 'soft';
+  user: IUser;
+  dependencies: TUserDependencySummary;
 };
 
 const validateObjectId = (id: string, fieldName = 'User ID') => {
@@ -69,65 +53,33 @@ const validateObjectId = (id: string, fieldName = 'User ID') => {
   }
 };
 
-const isGlobalRole = (role: TUserRole) => {
-  return GLOBAL_ROLES.includes(role);
+const notDeletedFilter: FilterQuery<IUser> = {
+  isDeleted: { $ne: true },
 };
 
-const getDefaultCreatedRole = (actorRole: TUserRole): TUserRole => {
-  if (actorRole === 'owner') {
-    return 'tenant';
-  }
-
-  return 'user';
-};
-
-const resolveTenantOwnerId = async (
-  requestedOwnerId: string | Types.ObjectId | null | undefined,
-  actor: TAuthenticatedUser,
-) => {
-  const ownerId =
-    actor.role === 'owner' ? actor.id : requestedOwnerId?.toString();
-
-  if (!ownerId) {
-    throw new Error('An owner must be assigned to the tenant.');
-  }
-
-  validateObjectId(ownerId, 'Owner ID');
-
-  const owner = await UserModel.findOne({
-    _id: ownerId,
-    role: 'owner',
-    userStatus: 'active',
-  }).select('_id');
-
-  if (!owner) {
-    throw new Error('A valid active owner was not found.');
-  }
-
-  return owner._id;
-};
+const hasGlobalAccess = (role: TUserRole) =>
+  role === 'superAdmin' || role === 'admin';
 
 const buildAccessibleUserFilter = (
   id: string,
   actor: TAuthenticatedUser,
 ): FilterQuery<IUser> => {
   validateObjectId(id);
-  validateObjectId(actor.id);
+  validateObjectId(actor.id, 'Authenticated user ID');
 
-  if (isGlobalRole(actor.role)) {
+  if (hasGlobalAccess(actor.role)) {
     return {
       _id: id,
+      ...notDeletedFilter,
     };
   }
 
   if (actor.role === 'owner') {
     return {
       _id: id,
-
+      ...notDeletedFilter,
       $or: [
-        {
-          _id: actor.id,
-        },
+        { _id: actor.id },
         {
           role: 'tenant',
           ownerId: actor.id,
@@ -142,83 +94,76 @@ const buildAccessibleUserFilter = (
 
   return {
     _id: actor.id,
+    ...notDeletedFilter,
   };
 };
 
-const canManageTargetStatus = (
+const validateRequestedRole = (
+  requestedRole: TUserRole,
   actor: TAuthenticatedUser,
-  target: IUser & {
-    _id: Types.ObjectId;
-  },
 ) => {
-  if (actor.role === 'superAdmin') {
-    return true;
+  if (actor.role === 'owner' && requestedRole !== 'tenant') {
+    throw new Error('Owner can only create tenant accounts.');
   }
 
-  if (actor.role === 'admin') {
-    return !['superAdmin', 'admin'].includes(target.role);
+  if (actor.role === 'admin' && ['admin', 'superAdmin'].includes(requestedRole)) {
+    throw new Error('Admin cannot create admin or super-admin accounts.');
   }
 
-  if (actor.role === 'owner') {
-    return target.role === 'tenant' && target.ownerId?.toString() === actor.id;
+  if (actor.role !== 'superAdmin' && requestedRole === 'superAdmin') {
+    throw new Error('Only a super admin can create another super admin.');
   }
-
-  return false;
 };
 
 const createUserIntoDB = async (
   payload: TCreateUserPayload,
   actor: TAuthenticatedUser,
 ) => {
+  if (!['superAdmin', 'admin', 'owner'].includes(actor.role)) {
+    throw new Error('You are not authorized to create users.');
+  }
+
   validateObjectId(actor.id, 'Creator ID');
 
-  const requestedRole = payload.role ?? getDefaultCreatedRole(actor.role);
+  const requestedRole =
+    payload.role ?? (actor.role === 'owner' ? 'tenant' : 'user');
 
-  const allowedRoles = CREATABLE_ROLES[actor.role];
-
-  if (!allowedRoles.includes(requestedRole)) {
-    throw new Error(
-      `You are not authorized to create a ${requestedRole} account.`,
-    );
-  }
-
-  if (!payload.name) {
-    throw new Error('User name is required.');
-  }
-
-  if (typeof payload.email !== 'string' || !payload.email.trim()) {
-    throw new Error('Email is required.');
-  }
-
-  if (!payload.password) {
-    throw new Error('Password is required for credentials account.');
-  }
+  validateRequestedRole(requestedRole, actor);
 
   let ownerId: Types.ObjectId | null = null;
 
   if (requestedRole === 'tenant') {
-    ownerId = await resolveTenantOwnerId(payload.ownerId, actor);
+    const requestedOwnerId =
+      actor.role === 'owner' ? actor.id : payload.ownerId?.toString();
+
+    if (!requestedOwnerId) {
+      throw new Error('An owner must be assigned to the tenant.');
+    }
+
+    validateObjectId(requestedOwnerId, 'Owner ID');
+
+    const owner = await UserModel.findOne({
+      _id: requestedOwnerId,
+      role: 'owner',
+      userStatus: 'active',
+      isDeleted: { $ne: true },
+    }).select('_id');
+
+    if (!owner) {
+      throw new Error('A valid active owner was not found.');
+    }
+
+    ownerId = owner._id;
   }
-
-  const personalCashflow =
-    requestedRole === 'user' ||
-    (actor.role === 'superAdmin' &&
-      payload.features?.personalCashflow === true);
-
-  const passwordHash = await bcrypt.hash(payload.password, 12);
 
   const userData: Partial<IUser> = {
     name: payload.name,
-
     email: payload.email.trim().toLowerCase(),
-
     phone: payload.phone,
     photo: payload.photo,
     address: payload.address,
     dateOfBirth: payload.dateOfBirth,
-
-    password: passwordHash,
-    provider: 'credentials',
+    provider: payload.provider,
 
     role: requestedRole,
     userStatus: 'active',
@@ -227,56 +172,78 @@ const createUserIntoDB = async (
     ownerId,
 
     features: {
-      personalCashflow,
+      personalCashflow: false,
     },
 
     refreshTokenHash: null,
+    isDeleted: false,
+    deletedAt: null,
+    deletedBy: null,
   };
+
+  if (payload.provider === 'credentials') {
+    if (!payload.password) {
+      throw new Error('Password is required for credentials account.');
+    }
+
+    userData.password = await bcrypt.hash(payload.password, 12);
+  }
 
   return UserModel.create(userData);
 };
 
 const getAllUsersFromDB = async (actor: TAuthenticatedUser) => {
-  validateObjectId(actor.id);
+  validateObjectId(actor.id, 'Authenticated user ID');
 
-  let filter: FilterQuery<IUser>;
+  let filter: FilterQuery<IUser> = {
+    ...notDeletedFilter,
+  };
 
-  if (isGlobalRole(actor.role)) {
-    filter = {};
-  } else if (actor.role === 'owner') {
+  if (actor.role === 'owner') {
     filter = {
+      ...notDeletedFilter,
       $or: [
-        {
-          _id: actor.id,
-        },
+        { _id: actor.id },
         {
           role: 'tenant',
           ownerId: actor.id,
         },
       ],
     };
-  } else {
+  } else if (!hasGlobalAccess(actor.role)) {
     filter = {
       _id: actor.id,
+      ...notDeletedFilter,
     };
   }
 
   return UserModel.find(filter)
     .populate('createdBy', 'name email role')
     .populate('ownerId', 'name email phone role')
-    .sort({
-      createdAt: -1,
-    })
+    .sort({ createdAt: -1 })
     .lean();
 };
 
 const getSingleUserFromDB = async (id: string, actor: TAuthenticatedUser) => {
   const filter = buildAccessibleUserFilter(id, actor);
+  const user = await UserModel.findOne(filter);
 
-  return UserModel.findOne(filter)
-    .populate('createdBy', 'name email role')
-    .populate('ownerId', 'name email phone role')
-    .exec();
+  if (!user) {
+    return null;
+  }
+
+  await user.populate([
+    {
+      path: 'createdBy',
+      select: 'name email role',
+    },
+    {
+      path: 'ownerId',
+      select: 'name email phone role',
+    },
+  ]);
+
+  return user;
 };
 
 const updateUserInDB = async (
@@ -285,112 +252,93 @@ const updateUserInDB = async (
   actor: TAuthenticatedUser,
 ) => {
   const filter = buildAccessibleUserFilter(id, actor);
-
   const existingUser = await UserModel.findOne(filter);
 
   if (!existingUser) {
     return null;
   }
 
-  const isOwnAccount = existingUser._id.toString() === actor.id;
-
   const updateData: Partial<IUser> = {};
 
-  if (data.name !== undefined) {
-    updateData.name = data.name;
-  }
-
-  if (data.phone !== undefined) {
-    updateData.phone = data.phone;
-  }
-
-  if (data.photo !== undefined) {
-    updateData.photo = data.photo;
-  }
-
-  if (data.address !== undefined) {
-    updateData.address = data.address;
-  }
-
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.phone !== undefined) updateData.phone = data.phone;
+  if (data.photo !== undefined) updateData.photo = data.photo;
+  if (data.address !== undefined) updateData.address = data.address;
   if (data.dateOfBirth !== undefined) {
     updateData.dateOfBirth = data.dateOfBirth;
   }
 
   if (data.userStatus !== undefined) {
-    if (isOwnAccount && data.userStatus === 'inactive') {
-      throw new Error('You cannot deactivate your own account.');
+    const isOwnAccount = existingUser._id.toString() === actor.id;
+    const isOwnedTenant =
+      actor.role === 'owner' &&
+      existingUser.role === 'tenant' &&
+      existingUser.ownerId?.toString() === actor.id;
+
+    if (isOwnAccount) {
+      throw new Error('You cannot change your own account status.');
     }
 
-    if (!canManageTargetStatus(actor, existingUser)) {
+    if (!hasGlobalAccess(actor.role) && !isOwnedTenant) {
       throw new Error('You are not authorized to change user status.');
     }
 
-    updateData.userStatus = data.userStatus as TUserStatus;
-  }
+    updateData.userStatus = data.userStatus;
 
-  if (data.role !== undefined && data.role !== existingUser.role) {
-    if (isOwnAccount) {
-      throw new Error('You cannot change your own role.');
+    if (data.userStatus === 'inactive') {
+      updateData.refreshTokenHash = null;
     }
-
-    const canChangeRole =
-      actor.role === 'superAdmin' ||
-      (actor.role === 'admin' &&
-        !['superAdmin', 'admin'].includes(existingUser.role) &&
-        ['owner', 'tenant', 'user'].includes(data.role));
-
-    if (!canChangeRole) {
-      throw new Error('You are not authorized to change this user role.');
-    }
-
-    updateData.role = data.role;
-
-    if (data.role === 'tenant') {
-      updateData.ownerId = await resolveTenantOwnerId(
-        data.ownerId ?? existingUser.ownerId,
-        actor,
-      );
-    } else {
-      updateData.ownerId = null;
-    }
-  } else if (data.ownerId !== undefined && existingUser.role === 'tenant') {
-    if (actor.role !== 'superAdmin' && actor.role !== 'admin') {
-      throw new Error('You are not authorized to reassign tenant ownership.');
-    }
-
-    updateData.ownerId = await resolveTenantOwnerId(data.ownerId, actor);
-  }
-
-  if (data.features?.personalCashflow !== undefined) {
-    if (actor.role !== 'superAdmin') {
-      throw new Error(
-        'Only a super admin can change personal cashflow access.',
-      );
-    }
-
-    updateData.features = {
-      personalCashflow: data.features.personalCashflow,
-    };
   }
 
   return UserModel.findOneAndUpdate(
     filter,
-    {
-      $set: updateData,
-    },
+    { $set: updateData },
     {
       new: true,
       runValidators: true,
     },
-  )
-    .populate('createdBy', 'name email role')
-    .populate('ownerId', 'name email phone role')
-    .exec();
+  );
 };
 
-const deleteUserFromDB = async (id: string, actor: TAuthenticatedUser) => {
-  const filter = buildAccessibleUserFilter(id, actor);
+const getUserDependencies = async (
+  userId: string,
+): Promise<TUserDependencySummary> => {
+  const objectId = new Types.ObjectId(userId);
 
+  const [ownedUsers, createdUsers, relatedUsers] = await Promise.all([
+    UserModel.countDocuments({
+      ownerId: objectId,
+    }),
+    UserModel.countDocuments({
+      createdBy: objectId,
+    }),
+    UserModel.countDocuments({
+      _id: { $ne: objectId },
+      $or: [{ ownerId: objectId }, { createdBy: objectId }],
+    }),
+  ]);
+
+  /*
+   * Apartment এবং rent module তৈরি হলে তাদের dependency count এখানে যোগ করুন।
+   * উদাহরণ:
+   * const apartments = await ApartmentModel.countDocuments({ ownerId: objectId });
+   * const rentRecords = await RentModel.countDocuments({ userId: objectId });
+   */
+  const total = relatedUsers;
+
+  return {
+    ownedUsers,
+    createdUsers,
+    relatedUsers,
+    total,
+  };
+};
+
+const deleteUserFromDB = async (
+  id: string,
+  actor: TAuthenticatedUser,
+): Promise<TDeleteUserResult | null> => {
+  const filter = buildAccessibleUserFilter(id, actor);
   const existingUser = await UserModel.findOne(filter);
 
   if (!existingUser) {
@@ -398,25 +346,60 @@ const deleteUserFromDB = async (id: string, actor: TAuthenticatedUser) => {
   }
 
   if (existingUser._id.toString() === actor.id) {
-    throw new Error('You cannot deactivate your own account.');
+    throw new Error('You cannot delete your own account.');
   }
 
-  if (!canManageTargetStatus(actor, existingUser)) {
-    throw new Error('You are not authorized to deactivate this user.');
+  const isOwnedTenant =
+    actor.role === 'owner' &&
+    existingUser.role === 'tenant' &&
+    existingUser.ownerId?.toString() === actor.id;
+
+  if (!hasGlobalAccess(actor.role) && !isOwnedTenant) {
+    throw new Error('You are not authorized to delete this user.');
   }
 
-  return UserModel.findOneAndUpdate(
+  const dependencies = await getUserDependencies(id);
+
+  if (dependencies.total === 0) {
+    const deletedUser = await UserModel.findOneAndDelete(filter);
+
+    if (!deletedUser) {
+      return null;
+    }
+
+    return {
+      deletionType: 'hard',
+      user: deletedUser,
+      dependencies,
+    };
+  }
+
+  const archivedUser = await UserModel.findOneAndUpdate(
     filter,
     {
       $set: {
+        isDeleted: true,
         userStatus: 'inactive',
+        deletedAt: new Date(),
+        deletedBy: new Types.ObjectId(actor.id),
         refreshTokenHash: null,
       },
     },
     {
       new: true,
+      runValidators: true,
     },
-  ).exec();
+  );
+
+  if (!archivedUser) {
+    return null;
+  }
+
+  return {
+    deletionType: 'soft',
+    user: archivedUser,
+    dependencies,
+  };
 };
 
 export const UserServices = {
@@ -424,5 +407,6 @@ export const UserServices = {
   getAllUsersFromDB,
   getSingleUserFromDB,
   updateUserInDB,
+  getUserDependencies,
   deleteUserFromDB,
 };

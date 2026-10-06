@@ -6,6 +6,7 @@ const getUserByEmailFromDB = async (email: string) => {
   return UserModel.findOne({
     email: email.trim().toLowerCase(),
     userStatus: 'active',
+    isDeleted: { $ne: true },
   })
     .select('+password')
     .exec();
@@ -18,7 +19,7 @@ const getUserByIdFromDB = async (userId: string) => {
 
   return UserModel.findOne({
     _id: userId,
-    userStatus: 'active',
+    isDeleted: { $ne: true },
   })
     .select('+refreshTokenHash')
     .exec();
@@ -32,6 +33,7 @@ const getCurrentUserFromDB = async (userId: string) => {
   return UserModel.findOne({
     _id: userId,
     userStatus: 'active',
+    isDeleted: { $ne: true },
   })
     .select(
       [
@@ -54,8 +56,12 @@ const updateRefreshTokenHashInDB = async (
   userId: string,
   refreshTokenHash: string,
 ) => {
-  return UserModel.findByIdAndUpdate(
-    userId,
+  return UserModel.findOneAndUpdate(
+    {
+      _id: userId,
+      userStatus: 'active',
+      isDeleted: { $ne: true },
+    },
     {
       $set: {
         refreshTokenHash,

@@ -18,13 +18,13 @@ if (!JWT_REFRESH_SECRET) {
 }
 
 // for testing
-const ACCESS_TOKEN_EXPIRES_IN = '20s' as const;
-const ACCESS_TOKEN_MAX_AGE = 20 * 1000;
+// const ACCESS_TOKEN_EXPIRES_IN = '20s' as const;
+// const ACCESS_TOKEN_MAX_AGE = 20 * 1000;
 
-// const ACCESS_TOKEN_EXPIRES_IN = '15m' as const;
+const ACCESS_TOKEN_EXPIRES_IN = '15m' as const;
+const ACCESS_TOKEN_MAX_AGE = 15 * 60 * 1000;
+
 const REFRESH_TOKEN_EXPIRES_IN = '7d' as const;
-
-// const ACCESS_TOKEN_MAX_AGE = 15 * 60 * 1000;
 const REFRESH_TOKEN_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 const isProduction = config.node_env === 'production';

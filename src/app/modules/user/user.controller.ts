@@ -13,7 +13,6 @@ const getActor = (req: Request, res: Response): TAuthenticatedUser | null => {
       success: false,
       message: 'You must be logged in.',
     });
-
     return null;
   }
 
@@ -90,7 +89,6 @@ const sendControllerError = (
 const createUser: RequestHandler = async (req, res) => {
   try {
     const actor = getActor(req, res);
-
     if (!actor) return;
 
     const userData = req.body?.user as TCreateUserPayload | undefined;
@@ -104,11 +102,6 @@ const createUser: RequestHandler = async (req, res) => {
     }
 
     const result = await UserServices.createUserIntoDB(userData, actor);
-
-    /*
-     * Model.create() থেকে password hash আসতে পারে।
-     * Response দেওয়ার আগে sensitive fields remove করছি।
-     */
     const safeUser = result.toObject();
 
     delete safeUser.password;
@@ -131,7 +124,6 @@ const createUser: RequestHandler = async (req, res) => {
 const getAllUsers: RequestHandler = async (req, res) => {
   try {
     const actor = getActor(req, res);
-
     if (!actor) return;
 
     const result = await UserServices.getAllUsersFromDB(actor);
@@ -149,7 +141,6 @@ const getAllUsers: RequestHandler = async (req, res) => {
 const getSingleUser: RequestHandler = async (req, res) => {
   try {
     const actor = getActor(req, res);
-
     if (!actor) return;
 
     const { userId } = req.params;
@@ -185,7 +176,6 @@ const getSingleUser: RequestHandler = async (req, res) => {
 const updateUser: RequestHandler = async (req, res) => {
   try {
     const actor = getActor(req, res);
-
     if (!actor) return;
 
     const { userId } = req.params;
@@ -199,7 +189,6 @@ const updateUser: RequestHandler = async (req, res) => {
     }
 
     const updateData = (req.body?.user ?? req.body) as TUpdateUserPayload;
-
     const result = await UserServices.updateUserInDB(userId, updateData, actor);
 
     if (!result) {
@@ -223,7 +212,6 @@ const updateUser: RequestHandler = async (req, res) => {
 const deleteUser: RequestHandler = async (req, res) => {
   try {
     const actor = getActor(req, res);
-
     if (!actor) return;
 
     const { userId } = req.params;
@@ -246,13 +234,17 @@ const deleteUser: RequestHandler = async (req, res) => {
       return;
     }
 
+    const wasArchived = result.deletionType === 'soft';
+
     res.status(200).json({
       success: true,
-      message: 'User deactivated successfully.',
+      message: wasArchived
+        ? 'User archived because connected records exist.'
+        : 'User permanently deleted.',
       data: result,
     });
   } catch (error) {
-    sendControllerError(res, error, 'Failed to deactivate user.');
+    sendControllerError(res, error, 'Failed to delete user.');
   }
 };
 
