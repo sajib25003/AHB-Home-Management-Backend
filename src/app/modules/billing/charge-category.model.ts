@@ -37,11 +37,6 @@ const chargeCategorySchema = new Schema<IChargeCategory>(
       enum: CHARGE_CALCULATION_MODES,
       required: true,
     },
-    defaultAmount: {
-      type: Number,
-      default: null,
-      min: 0,
-    },
     isSystemDefault: {
       type: Boolean,
       default: false,
