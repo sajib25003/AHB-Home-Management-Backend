@@ -93,7 +93,6 @@ const ensureDefaultCategories = async (
             name,
             code,
             defaultMode,
-            defaultAmount: null,
             isSystemDefault: true,
             isActive: true,
             sortOrder: index + 1,
@@ -141,8 +140,6 @@ const createChargeCategoryIntoDB = async (
     name,
     code,
     defaultMode: payload.defaultMode,
-    defaultAmount:
-      payload.defaultAmount === undefined ? null : payload.defaultAmount,
     isSystemDefault: false,
     isActive: true,
     sortOrder: payload.sortOrder ?? 100,
@@ -176,10 +173,6 @@ const updateChargeCategoryInDB = async (
 
   if (payload.defaultMode !== undefined) {
     updateData.defaultMode = payload.defaultMode;
-  }
-
-  if (payload.defaultAmount !== undefined) {
-    updateData.defaultAmount = payload.defaultAmount;
   }
 
   if (payload.isActive !== undefined) {
