@@ -31,7 +31,7 @@ const sendChargeCategoryError = (
   if (databaseError.code === 11000) {
     return res.status(409).json({
       success: false,
-      message: 'This owner already has a charge category with the same code.',
+      message: 'This property already has a charge category with the same code.',
     });
   }
 
@@ -75,12 +75,14 @@ const getChargeCategories: RequestHandler = async (req, res) => {
     const actor = getActor(req, res);
     if (!actor) return;
 
-    const ownerId =
-      typeof req.query.ownerId === 'string' ? req.query.ownerId : undefined;
+    const propertyId =
+      typeof req.query.propertyId === 'string'
+        ? req.query.propertyId
+        : undefined;
     const includeInactive = req.query.includeInactive === 'true';
     const result = await ChargeCategoryServices.getChargeCategoriesFromDB(
       actor,
-      ownerId,
+      propertyId,
       includeInactive,
     );
 
