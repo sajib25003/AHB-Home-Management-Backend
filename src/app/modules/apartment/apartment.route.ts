@@ -14,6 +14,10 @@ apartmentRouter.patch(
   '/:apartmentId/electricity-config',
   ApartmentController.updateApartmentElectricityConfig,
 );
+apartmentRouter.patch(
+  '/:apartmentId/charge-settings',
+  ApartmentController.updateApartmentChargeSettings,
+);
 apartmentRouter.patch('/:apartmentId', ApartmentController.updateApartment);
 apartmentRouter.delete('/:apartmentId', ApartmentController.deleteApartment);
 
