@@ -17,7 +17,6 @@ export interface IChargeCategory {
   name: string;
   code: string;
   defaultMode: TChargeCalculationMode;
-  defaultAmount?: number | null;
   isSystemDefault: boolean;
   isActive: boolean;
   sortOrder: number;
@@ -31,13 +30,12 @@ export type TCreateChargeCategoryPayload = {
   name: string;
   code?: string;
   defaultMode: TChargeCalculationMode;
-  defaultAmount?: number | null;
   sortOrder?: number;
 };
 
 export type TUpdateChargeCategoryPayload = Partial<
   Pick<
     IChargeCategory,
-    'name' | 'defaultMode' | 'defaultAmount' | 'isActive' | 'sortOrder'
+    'name' | 'defaultMode' | 'isActive' | 'sortOrder'
   >
 >;
