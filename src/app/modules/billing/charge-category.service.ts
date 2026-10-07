@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 
 import type { TPropertyActor } from '../property/property.service';
-import { UserModel } from '../user/user.model';
+import { PropertyModel } from '../property/property.model';
 import {
   TCreateChargeCategoryPayload,
   TUpdateChargeCategoryPayload,
@@ -36,32 +36,31 @@ const ensureManager = (actor: TPropertyActor) => {
   }
 };
 
-const resolveOwnerId = async (
-  requestedOwnerId: string | undefined,
+const resolveProperty = async (
+  propertyId: string | undefined,
   actor: TPropertyActor,
 ) => {
   ensureManager(actor);
 
-  const ownerId = actor.role === 'owner' ? actor.id : requestedOwnerId;
-
-  if (!ownerId) {
-    throw new Error('Owner ID is required.');
+  if (!propertyId) {
+    throw new Error('Property ID is required.');
   }
 
-  validateObjectId(ownerId, 'Owner ID');
+  validateObjectId(propertyId, 'Property ID');
 
-  const owner = await UserModel.findOne({
-    _id: ownerId,
-    role: 'owner',
-    userStatus: 'active',
+  const property = await PropertyModel.findOne({
+    _id: propertyId,
     isDeleted: { $ne: true },
-  }).select('_id');
+    ...(actor.role === 'owner'
+      ? { ownerId: new Types.ObjectId(actor.id) }
+      : {}),
+  }).select('_id ownerId');
 
-  if (!owner) {
-    throw new Error('A valid active owner was not found.');
+  if (!property) {
+    throw new Error('Property not found or access was denied.');
   }
 
-  return owner._id;
+  return property;
 };
 
 const normalizeCode = (code: string) => {
@@ -80,15 +79,17 @@ const normalizeCode = (code: string) => {
 
 const ensureDefaultCategories = async (
   ownerId: Types.ObjectId,
+  propertyId: Types.ObjectId,
   actorId: string,
 ) => {
   await ChargeCategoryModel.bulkWrite(
     DEFAULT_CHARGE_CATEGORIES.map(([name, code, defaultMode], index) => ({
       updateOne: {
-        filter: { ownerId, code },
+        filter: { propertyId, code },
         update: {
           $setOnInsert: {
             ownerId,
+            propertyId,
             name,
             code,
             defaultMode,
@@ -107,14 +108,14 @@ const ensureDefaultCategories = async (
 
 const getChargeCategoriesFromDB = async (
   actor: TPropertyActor,
-  ownerId?: string,
+  propertyId?: string,
   includeInactive = false,
 ) => {
-  const resolvedOwnerId = await resolveOwnerId(ownerId, actor);
-  await ensureDefaultCategories(resolvedOwnerId, actor.id);
+  const property = await resolveProperty(propertyId, actor);
+  await ensureDefaultCategories(property.ownerId, property._id, actor.id);
 
   return ChargeCategoryModel.find({
-    ownerId: resolvedOwnerId,
+    propertyId: property._id,
     ...(includeInactive ? {} : { isActive: true }),
   })
     .sort({ sortOrder: 1, name: 1 })
@@ -125,7 +126,7 @@ const createChargeCategoryIntoDB = async (
   payload: TCreateChargeCategoryPayload,
   actor: TPropertyActor,
 ) => {
-  const ownerId = await resolveOwnerId(payload.ownerId, actor);
+  const property = await resolveProperty(payload.propertyId, actor);
   const name = payload.name?.trim();
 
   if (!name) {
@@ -135,7 +136,8 @@ const createChargeCategoryIntoDB = async (
   const code = normalizeCode(payload.code || name);
 
   return ChargeCategoryModel.create({
-    ownerId,
+    ownerId: property.ownerId,
+    propertyId: property._id,
     name,
     code,
     defaultMode: payload.defaultMode,
