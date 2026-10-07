@@ -44,6 +44,31 @@ const apartmentElectricityConfigSchema = new Schema(
   { _id: false },
 );
 
+const apartmentChargeSettingSchema = new Schema(
+  {
+    categoryId: {
+      type: Schema.Types.ObjectId,
+      ref: 'ChargeCategory',
+      required: true,
+    },
+    amount: {
+      type: Number,
+      default: null,
+      min: [0, 'Apartment charge amount cannot be negative.'],
+    },
+    updatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    updatedAt: {
+      type: Date,
+      required: true,
+    },
+  },
+  { _id: false },
+);
+
 const apartmentSchema = new Schema<IApartment>(
   {
     propertyId: {
@@ -77,6 +102,11 @@ const apartmentSchema = new Schema<IApartment>(
     electricityConfig: {
       type: apartmentElectricityConfigSchema,
       default: null,
+    },
+
+    chargeSettings: {
+      type: [apartmentChargeSettingSchema],
+      default: [],
     },
 
     isDeleted: {
