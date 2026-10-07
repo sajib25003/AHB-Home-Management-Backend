@@ -13,6 +13,7 @@ export type TChargeCalculationMode = (typeof CHARGE_CALCULATION_MODES)[number];
 
 export interface IChargeCategory {
   ownerId: Types.ObjectId;
+  propertyId: Types.ObjectId;
   name: string;
   code: string;
   defaultMode: TChargeCalculationMode;
@@ -26,7 +27,7 @@ export interface IChargeCategory {
 }
 
 export type TCreateChargeCategoryPayload = {
-  ownerId?: string;
+  propertyId: string;
   name: string;
   code?: string;
   defaultMode: TChargeCalculationMode;
