@@ -13,6 +13,12 @@ const chargeCategorySchema = new Schema<IChargeCategory>(
       required: true,
       index: true,
     },
+    propertyId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Property',
+      required: true,
+      index: true,
+    },
     name: {
       type: String,
       required: [true, 'Charge category name is required.'],
@@ -62,9 +68,9 @@ const chargeCategorySchema = new Schema<IChargeCategory>(
   },
 );
 
-chargeCategorySchema.index({ ownerId: 1, code: 1 }, { unique: true });
+chargeCategorySchema.index({ propertyId: 1, code: 1 }, { unique: true });
 
-chargeCategorySchema.index({ ownerId: 1, isActive: 1, sortOrder: 1 });
+chargeCategorySchema.index({ propertyId: 1, isActive: 1, sortOrder: 1 });
 
 export const ChargeCategoryModel = model<IChargeCategory>(
   'ChargeCategory',
