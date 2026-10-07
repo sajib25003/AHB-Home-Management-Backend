@@ -77,7 +77,12 @@ const tenancyPopulate = [
   },
   {
     path: 'apartmentId',
-    select: 'apartmentNumber propertyId note electricityConfig',
+    select:
+      'apartmentNumber propertyId note electricityConfig chargeSettings',
+    populate: {
+      path: 'chargeSettings.categoryId',
+      select: 'name code defaultMode isActive sortOrder',
+    },
   },
   {
     path: 'createdBy',
