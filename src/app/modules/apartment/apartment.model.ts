@@ -19,11 +19,6 @@ const apartmentElectricityConfigSchema = new Schema(
       required: true,
       default: 'ownerCollects',
     },
-    providerOverrideId: {
-      type: Schema.Types.ObjectId,
-      ref: 'ElectricityProvider',
-      default: null,
-    },
     meterNumber: {
       type: String,
       trim: true,
