@@ -78,10 +78,6 @@ const tenancyPopulate = [
   {
     path: 'apartmentId',
     select: 'apartmentNumber propertyId note electricityConfig',
-    populate: {
-      path: 'electricityConfig.providerOverrideId',
-      select: 'name code isActive',
-    },
   },
   {
     path: 'createdBy',
