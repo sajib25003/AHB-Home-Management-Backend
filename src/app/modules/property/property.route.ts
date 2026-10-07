@@ -13,6 +13,11 @@ propertyRouter.use(authorizeRoles('superAdmin', 'owner'));
 propertyRouter.post('/', PropertyController.createProperty);
 propertyRouter.get('/', PropertyController.getAllProperties);
 
+propertyRouter.patch(
+  '/:propertyId/electricity-settings',
+  PropertyController.updatePropertyElectricitySettings,
+);
+
 propertyRouter.post(
   '/:propertyId/apartments',
   ApartmentController.createApartment,

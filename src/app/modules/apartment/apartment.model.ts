@@ -1,6 +1,53 @@
 import { model, Schema } from 'mongoose';
 
-import { IApartment } from './apartment.interface';
+import {
+  APARTMENT_ELECTRICITY_BILLING_TYPES,
+  ELECTRICITY_PAYMENT_RESPONSIBILITIES,
+  IApartment,
+} from './apartment.interface';
+
+const apartmentElectricityConfigSchema = new Schema(
+  {
+    billingType: {
+      type: String,
+      enum: APARTMENT_ELECTRICITY_BILLING_TYPES,
+      required: true,
+    },
+    paymentResponsibility: {
+      type: String,
+      enum: ELECTRICITY_PAYMENT_RESPONSIBILITIES,
+      required: true,
+      default: 'ownerCollects',
+    },
+    providerOverrideId: {
+      type: Schema.Types.ObjectId,
+      ref: 'ElectricityProvider',
+      default: null,
+    },
+    meterNumber: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: [100, 'Electricity meter number is too long.'],
+    },
+    note: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: [1000, 'Electricity configuration note is too long.'],
+    },
+    updatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    updatedAt: {
+      type: Date,
+      required: true,
+    },
+  },
+  { _id: false },
+);
 
 const apartmentSchema = new Schema<IApartment>(
   {
@@ -30,6 +77,11 @@ const apartmentSchema = new Schema<IApartment>(
       ref: 'User',
       required: true,
       index: true,
+    },
+
+    electricityConfig: {
+      type: apartmentElectricityConfigSchema,
+      default: null,
     },
 
     isDeleted: {

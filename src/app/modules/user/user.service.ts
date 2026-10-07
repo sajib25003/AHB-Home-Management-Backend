@@ -113,7 +113,10 @@ const validateRequestedRole = (
     throw new Error('Owner can only create tenant accounts.');
   }
 
-  if (actor.role === 'admin' && ['admin', 'superAdmin'].includes(requestedRole)) {
+  if (
+    actor.role === 'admin' &&
+    ['admin', 'superAdmin'].includes(requestedRole)
+  ) {
     throw new Error('Admin cannot create admin or super-admin accounts.');
   }
 

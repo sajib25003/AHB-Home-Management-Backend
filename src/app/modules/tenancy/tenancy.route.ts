@@ -41,4 +41,11 @@ tenancyRouter.patch(
   TenancyController.endTenancy,
 );
 
+tenancyRouter.patch(
+  '/:tenancyId/rent-terms',
+  authMiddleware,
+  authorizeRoles('superAdmin', 'owner'),
+  TenancyController.upsertRentTerms,
+);
+
 export default tenancyRouter;

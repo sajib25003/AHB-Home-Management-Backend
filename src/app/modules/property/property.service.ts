@@ -1,12 +1,14 @@
 import { FilterQuery, Types } from 'mongoose';
 
 import { ApartmentModel } from '../apartment/apartment.model';
+import { ElectricityProviderModel } from '../electricity/electricity.model';
 import { TenancyModel } from '../tenancy/tenancy.model';
 import { TUserRole } from '../user/user.interface';
 import { UserModel } from '../user/user.model';
 import {
   IProperty,
   TCreatePropertyPayload,
+  TUpdatePropertyElectricitySettingsPayload,
   TUpdatePropertyPayload,
 } from './property.interface';
 import { PropertyModel } from './property.model';
@@ -41,6 +43,21 @@ const normalizeOptionalNote = (note?: string | null) => {
   const normalizedNote = note?.trim();
   return normalizedNote || null;
 };
+
+const propertyPopulate = [
+  {
+    path: 'ownerId',
+    select: 'name email phone role userStatus',
+  },
+  {
+    path: 'createdBy',
+    select: 'name email role',
+  },
+  {
+    path: 'electricitySettings.providerId',
+    select: 'name code isActive',
+  },
+];
 
 const resolvePropertyOwnerId = async (
   payload: TCreatePropertyPayload,
@@ -88,9 +105,9 @@ const buildAccessiblePropertyFilter = (
   return filter;
 };
 
-const addApartmentCounts = async <
-  T extends { _id: Types.ObjectId },
->(properties: T[]) => {
+const addApartmentCounts = async <T extends { _id: Types.ObjectId }>(
+  properties: T[],
+) => {
   if (properties.length === 0) return [];
 
   const propertyIds = properties.map((property) => property._id);
@@ -183,8 +200,7 @@ const getAllPropertiesFromDB = async (
   }
 
   const properties = await PropertyModel.find(filter)
-    .populate('ownerId', 'name email phone role userStatus')
-    .populate('createdBy', 'name email role')
+    .populate(propertyPopulate)
     .sort({ createdAt: -1 })
     .lean();
 
@@ -198,8 +214,7 @@ const getSinglePropertyFromDB = async (
   const filter = buildAccessiblePropertyFilter(propertyId, actor);
 
   const property = await PropertyModel.findOne(filter)
-    .populate('ownerId', 'name email phone role userStatus')
-    .populate('createdBy', 'name email role')
+    .populate(propertyPopulate)
     .lean();
 
   if (!property) return null;
@@ -251,9 +266,51 @@ const updatePropertyInDB = async (
       new: true,
       runValidators: true,
     },
-  )
-    .populate('ownerId', 'name email phone role userStatus')
-    .populate('createdBy', 'name email role');
+  ).populate(propertyPopulate);
+};
+
+const updatePropertyElectricitySettingsInDB = async (
+  propertyId: string,
+  payload: TUpdatePropertyElectricitySettingsPayload,
+  actor: TPropertyActor,
+) => {
+  const filter = buildAccessiblePropertyFilter(propertyId, actor);
+
+  if (!payload.providerId) {
+    throw new Error('Electricity provider ID is required.');
+  }
+
+  validateObjectId(payload.providerId, 'Electricity provider ID');
+
+  const provider = await ElectricityProviderModel.findOne({
+    _id: payload.providerId,
+    isActive: true,
+  }).select('_id');
+
+  if (!provider) {
+    throw new Error('A valid active electricity provider was not found.');
+  }
+
+  return PropertyModel.findOneAndUpdate(
+    filter,
+    {
+      $set: {
+        electricitySettings: {
+          providerId: provider._id,
+          consumerCategory: payload.consumerCategory ?? 'LT_A_RESIDENTIAL',
+          accountNumber: payload.accountNumber?.trim() || null,
+          defaultMeterPhase: payload.defaultMeterPhase ?? 'singlePhase',
+          tariffSelection: 'automatic',
+          updatedBy: new Types.ObjectId(actor.id),
+          updatedAt: new Date(),
+        },
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    },
+  ).populate(propertyPopulate);
 };
 
 const deletePropertyFromDB = async (
@@ -323,5 +380,6 @@ export const PropertyServices = {
   getAllPropertiesFromDB,
   getSinglePropertyFromDB,
   updatePropertyInDB,
+  updatePropertyElectricitySettingsInDB,
   deletePropertyFromDB,
 };

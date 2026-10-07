@@ -6,10 +6,12 @@ import { PropertyModel } from '../property/property.model';
 import type { TPropertyActor } from '../property/property.service';
 import { UserModel } from '../user/user.model';
 import {
+  IRentTerms,
   ITenancy,
   TCreateTenancyPayload,
   TEndTenancyPayload,
   TTenancyListQuery,
+  TUpsertRentTermsPayload,
 } from './tenancy.interface';
 import { TenancyModel } from './tenancy.model';
 
@@ -81,7 +83,122 @@ const tenancyPopulate = [
     path: 'endedBy',
     select: 'name email role',
   },
+  {
+    path: 'rentRateHistory.changedBy',
+    select: 'name email role',
+  },
 ];
+
+const parseOptionalDate = (
+  value: string | Date | null | undefined,
+  fieldName: string,
+) => {
+  if (value === undefined || value === null || value === '') return null;
+  return parseDate(value, fieldName);
+};
+
+const normalizeMoney = (
+  value: number | null | undefined,
+  fieldName: string,
+  required = false,
+) => {
+  if (value === undefined || value === null) {
+    if (required) throw new Error(`${fieldName} is required.`);
+    return null;
+  }
+
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${fieldName} is invalid.`);
+  }
+
+  return Number(value.toFixed(2));
+};
+
+const buildRentTerms = (
+  payload: TUpsertRentTermsPayload,
+  tenancyStartDate: Date,
+  fallbackEffectiveFrom?: Date,
+): IRentTerms => {
+  const baseRent = normalizeMoney(payload.baseRent, 'Base rent', true);
+  const dueDay = payload.dueDay ?? 10;
+
+  if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) {
+    throw new Error('Rent due day must be between 1 and 31.');
+  }
+
+  const effectiveFrom = payload.effectiveFrom
+    ? parseDate(payload.effectiveFrom, 'Rent effective date')
+    : (fallbackEffectiveFrom ?? tenancyStartDate);
+
+  if (effectiveFrom.getTime() < tenancyStartDate.getTime()) {
+    throw new Error(
+      'Rent effective date cannot be before the tenancy start date.',
+    );
+  }
+
+  const noticePeriod = payload.noticePeriod ?? {
+    value: 1,
+    unit: 'months' as const,
+  };
+
+  if (
+    !Number.isInteger(noticePeriod.value) ||
+    noticePeriod.value < 0 ||
+    !['days', 'months'].includes(noticePeriod.unit)
+  ) {
+    throw new Error('Notice period is invalid.');
+  }
+
+  const intervalMonths = payload.rentRevision?.intervalMonths ?? null;
+
+  if (
+    intervalMonths !== null &&
+    (!Number.isInteger(intervalMonths) || intervalMonths < 1)
+  ) {
+    throw new Error('Rent revision interval is invalid.');
+  }
+
+  const nextRevisionDate = parseOptionalDate(
+    payload.rentRevision?.nextRevisionDate,
+    'Next rent revision date',
+  );
+  const agreementStartDate = parseOptionalDate(
+    payload.agreementStartDate,
+    'Agreement start date',
+  );
+  const agreementEndDate = parseOptionalDate(
+    payload.agreementEndDate,
+    'Agreement end date',
+  );
+
+  if (
+    agreementStartDate &&
+    agreementEndDate &&
+    agreementEndDate.getTime() < agreementStartDate.getTime()
+  ) {
+    throw new Error('Agreement end date cannot be before its start date.');
+  }
+
+  return {
+    baseRent: baseRent as number,
+    dueDay,
+    effectiveFrom,
+    noticePeriod,
+    rentRevision: {
+      intervalMonths,
+      nextRevisionDate,
+      note: normalizeOptionalText(payload.rentRevision?.note) ?? null,
+    },
+    securityDeposit: normalizeMoney(
+      payload.securityDeposit,
+      'Security deposit',
+    ),
+    advanceAmount: normalizeMoney(payload.advanceAmount, 'Advance amount'),
+    agreementStartDate,
+    agreementEndDate,
+    note: normalizeOptionalText(payload.note) ?? null,
+  };
+};
 
 const getAccessibleApartmentAndProperty = async (
   apartmentId: string,
@@ -254,12 +371,115 @@ const createTenancyIntoDB = async (
     status: 'active',
     note: normalizeOptionalText(payload.note) ?? null,
     moveOutNote: null,
+    rentTerms: payload.rentTerms
+      ? buildRentTerms(payload.rentTerms, startDate)
+      : null,
+    rentRateHistory: payload.rentTerms
+      ? [
+          {
+            amount: payload.rentTerms.baseRent,
+            effectiveFrom: payload.rentTerms.effectiveFrom
+              ? parseDate(
+                  payload.rentTerms.effectiveFrom,
+                  'Rent effective date',
+                )
+              : startDate,
+            effectiveTo: null,
+            changedBy: new Types.ObjectId(actor.id),
+            note:
+              normalizeOptionalText(payload.rentTerms.rateChangeNote) ??
+              'Initial rent',
+          },
+        ]
+      : [],
     createdBy: new Types.ObjectId(actor.id),
     endedBy: null,
   });
 
   await tenancy.populate(tenancyPopulate);
   return tenancy;
+};
+
+const upsertRentTermsInDB = async (
+  tenancyId: string,
+  payload: TUpsertRentTermsPayload,
+  actor: TPropertyActor,
+) => {
+  ensureManagerRole(actor);
+
+  const filter = buildAccessibleTenancyFilter(tenancyId, actor);
+  const tenancy = await TenancyModel.findOne(filter);
+
+  if (!tenancy) return null;
+
+  const existingTerms = tenancy.rentTerms;
+  const fallbackEffectiveFrom =
+    existingTerms?.effectiveFrom ?? tenancy.startDate;
+  const rentTerms = buildRentTerms(
+    payload,
+    tenancy.startDate,
+    fallbackEffectiveFrom,
+  );
+
+  if (existingTerms && existingTerms.baseRent === rentTerms.baseRent) {
+    rentTerms.effectiveFrom = existingTerms.effectiveFrom;
+  }
+
+  const rentRateHistory = tenancy.rentRateHistory.map((history) => ({
+    amount: history.amount,
+    effectiveFrom: history.effectiveFrom,
+    effectiveTo: history.effectiveTo ?? null,
+    changedBy: history.changedBy,
+    note: history.note ?? null,
+  }));
+
+  if (!existingTerms || existingTerms.baseRent !== rentTerms.baseRent) {
+    if (
+      existingTerms &&
+      rentTerms.effectiveFrom.getTime() <= existingTerms.effectiveFrom.getTime()
+    ) {
+      throw new Error(
+        'A new rent rate must have an effective date after the current rate.',
+      );
+    }
+
+    const currentHistory = rentRateHistory.find(
+      (history) => history.effectiveTo === null,
+    );
+
+    if (currentHistory) {
+      currentHistory.effectiveTo = new Date(
+        rentTerms.effectiveFrom.getTime() - 1,
+      );
+    }
+
+    rentRateHistory.push({
+      amount: rentTerms.baseRent,
+      effectiveFrom: rentTerms.effectiveFrom,
+      effectiveTo: null,
+      changedBy: new Types.ObjectId(actor.id),
+      note: normalizeOptionalText(payload.rateChangeNote) ?? null,
+    });
+  }
+
+  const updatedTenancy = await TenancyModel.findOneAndUpdate(
+    filter,
+    {
+      $set: {
+        rentTerms,
+        rentRateHistory,
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    },
+  );
+
+  if (!updatedTenancy) return null;
+
+  await updatedTenancy.populate(tenancyPopulate);
+  return updatedTenancy;
 };
 
 const getAllTenanciesFromDB = async (
@@ -402,5 +622,6 @@ export const TenancyServices = {
   getAllTenanciesFromDB,
   getSingleTenancyFromDB,
   getMyCurrentTenancyFromDB,
+  upsertRentTermsInDB,
   endTenancyInDB,
 };

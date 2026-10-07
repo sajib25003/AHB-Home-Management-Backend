@@ -10,6 +10,10 @@ apartmentRouter.use(authMiddleware);
 apartmentRouter.use(authorizeRoles('superAdmin', 'owner'));
 
 apartmentRouter.get('/:apartmentId', ApartmentController.getSingleApartment);
+apartmentRouter.patch(
+  '/:apartmentId/electricity-config',
+  ApartmentController.updateApartmentElectricityConfig,
+);
 apartmentRouter.patch('/:apartmentId', ApartmentController.updateApartment);
 apartmentRouter.delete('/:apartmentId', ApartmentController.deleteApartment);
 

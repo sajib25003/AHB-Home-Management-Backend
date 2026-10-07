@@ -6,6 +6,7 @@ import {
   TEndTenancyPayload,
   TTenancyListQuery,
   TTenancyStatus,
+  TUpsertRentTermsPayload,
 } from './tenancy.interface';
 import { TenancyServices } from './tenancy.service';
 
@@ -39,8 +40,7 @@ const sendTenancyError = (
   if (databaseError.code === 11000) {
     return res.status(409).json({
       success: false,
-      message:
-        'The apartment or tenant already has another active tenancy.',
+      message: 'The apartment or tenant already has another active tenancy.',
     });
   }
 
@@ -155,9 +155,7 @@ const getAllTenancies: RequestHandler = async (req, res) => {
 
     const query: TTenancyListQuery = {
       ownerId:
-        typeof req.query.ownerId === 'string'
-          ? req.query.ownerId
-          : undefined,
+        typeof req.query.ownerId === 'string' ? req.query.ownerId : undefined,
       propertyId:
         typeof req.query.propertyId === 'string'
           ? req.query.propertyId
@@ -167,9 +165,7 @@ const getAllTenancies: RequestHandler = async (req, res) => {
           ? req.query.apartmentId
           : undefined,
       tenantId:
-        typeof req.query.tenantId === 'string'
-          ? req.query.tenantId
-          : undefined,
+        typeof req.query.tenantId === 'string' ? req.query.tenantId : undefined,
       status: status as TTenancyStatus | undefined,
       page: parsePositiveInteger(req.query.page, 'Page'),
       limit: parsePositiveInteger(req.query.limit, 'Limit'),
@@ -284,10 +280,52 @@ const endTenancy: RequestHandler = async (req, res) => {
   }
 };
 
+const upsertRentTerms: RequestHandler = async (req, res) => {
+  try {
+    const actor = getActor(req, res);
+    if (!actor) return;
+
+    const { tenancyId } = req.params;
+
+    if (!tenancyId) {
+      res.status(400).json({
+        success: false,
+        message: 'Tenancy ID is required.',
+      });
+      return;
+    }
+
+    const payload = (req.body?.rentTerms ??
+      req.body) as TUpsertRentTermsPayload;
+    const result = await TenancyServices.upsertRentTermsInDB(
+      tenancyId,
+      payload,
+      actor,
+    );
+
+    if (!result) {
+      res.status(404).json({
+        success: false,
+        message: 'Tenancy not found.',
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Tenancy rent terms updated successfully.',
+      data: result,
+    });
+  } catch (error) {
+    sendTenancyError(res, error, 'Failed to update tenancy rent terms.');
+  }
+};
+
 export const TenancyController = {
   createTenancy,
   getAllTenancies,
   getSingleTenancy,
   getMyCurrentTenancy,
+  upsertRentTerms,
   endTenancy,
 };

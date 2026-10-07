@@ -13,7 +13,8 @@
     "start:dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "start:prod": "node ./dist/server.js",
     "seed:super-admin": "tsx src/scripts/seedSuperAdmin.ts",
-    "seed:dummy-users": "tsx src/scripts/seedDummyUsers.ts"
+    "seed:dummy-users": "tsx src/scripts/seedDummyUsers.ts",
+    "seed:electricity": "tsx src/scripts/seedElectricity.ts"
   },
   "keywords": [],
   "author": "",

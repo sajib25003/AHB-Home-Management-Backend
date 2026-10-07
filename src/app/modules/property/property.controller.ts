@@ -2,11 +2,10 @@ import { Request, RequestHandler, Response } from 'express';
 
 import {
   TCreatePropertyPayload,
+  TUpdatePropertyElectricitySettingsPayload,
   TUpdatePropertyPayload,
 } from './property.interface';
-import {
-  PropertyServices,
-} from './property.service';
+import { PropertyServices } from './property.service';
 import type { TPropertyActor } from './property.service';
 
 const getActor = (req: Request, res: Response): TPropertyActor | null => {
@@ -257,10 +256,56 @@ const deleteProperty: RequestHandler = async (req, res) => {
   }
 };
 
+const updatePropertyElectricitySettings: RequestHandler = async (req, res) => {
+  try {
+    const actor = getActor(req, res);
+    if (!actor) return;
+
+    const { propertyId } = req.params;
+
+    if (!propertyId) {
+      res.status(400).json({
+        success: false,
+        message: 'Property ID is required.',
+      });
+      return;
+    }
+
+    const payload = (req.body?.electricitySettings ??
+      req.body) as TUpdatePropertyElectricitySettingsPayload;
+    const result = await PropertyServices.updatePropertyElectricitySettingsInDB(
+      propertyId,
+      payload,
+      actor,
+    );
+
+    if (!result) {
+      res.status(404).json({
+        success: false,
+        message: 'Property not found.',
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Property electricity settings updated successfully.',
+      data: result,
+    });
+  } catch (error) {
+    sendPropertyError(
+      res,
+      error,
+      'Failed to update property electricity settings.',
+    );
+  }
+};
+
 export const PropertyController = {
   createProperty,
   getAllProperties,
   getSingleProperty,
   updateProperty,
+  updatePropertyElectricitySettings,
   deleteProperty,
 };

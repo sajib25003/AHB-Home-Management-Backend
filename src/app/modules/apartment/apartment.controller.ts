@@ -2,6 +2,7 @@ import { Request, RequestHandler, Response } from 'express';
 
 import {
   TCreateApartmentPayload,
+  TUpdateApartmentElectricityConfigPayload,
   TUpdateApartmentPayload,
 } from './apartment.interface';
 import { ApartmentServices } from './apartment.service';
@@ -277,10 +278,56 @@ const deleteApartment: RequestHandler = async (req, res) => {
   }
 };
 
+const updateApartmentElectricityConfig: RequestHandler = async (req, res) => {
+  try {
+    const actor = getActor(req, res);
+    if (!actor) return;
+
+    const { apartmentId } = req.params;
+
+    if (!apartmentId) {
+      res.status(400).json({
+        success: false,
+        message: 'Apartment ID is required.',
+      });
+      return;
+    }
+
+    const payload = (req.body?.electricityConfig ??
+      req.body) as TUpdateApartmentElectricityConfigPayload;
+    const result = await ApartmentServices.updateApartmentElectricityConfigInDB(
+      apartmentId,
+      payload,
+      actor,
+    );
+
+    if (!result) {
+      res.status(404).json({
+        success: false,
+        message: 'Apartment not found.',
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Apartment electricity configuration updated successfully.',
+      data: result,
+    });
+  } catch (error) {
+    sendApartmentError(
+      res,
+      error,
+      'Failed to update apartment electricity configuration.',
+    );
+  }
+};
+
 export const ApartmentController = {
   createApartment,
   getApartmentsByProperty,
   getSingleApartment,
   updateApartment,
+  updateApartmentElectricityConfig,
   deleteApartment,
 };

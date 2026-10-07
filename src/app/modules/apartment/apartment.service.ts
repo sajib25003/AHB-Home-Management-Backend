@@ -1,5 +1,6 @@
 import { FilterQuery, Types } from 'mongoose';
 
+import { ElectricityProviderModel } from '../electricity/electricity.model';
 import { IProperty } from '../property/property.interface';
 import type { TPropertyActor } from '../property/property.service';
 import { PropertyModel } from '../property/property.model';
@@ -7,6 +8,7 @@ import { TenancyModel } from '../tenancy/tenancy.model';
 import {
   IApartment,
   TCreateApartmentPayload,
+  TUpdateApartmentElectricityConfigPayload,
   TUpdateApartmentPayload,
 } from './apartment.interface';
 import { ApartmentModel } from './apartment.model';
@@ -121,6 +123,7 @@ const getApartmentsByPropertyFromDB = async (
     isDeleted: { $ne: true },
   })
     .populate('createdBy', 'name email role')
+    .populate('electricityConfig.providerOverrideId', 'name code isActive')
     .populate(currentTenancyPopulate)
     .sort({ apartmentNumber: 1 })
     .lean();
@@ -147,6 +150,10 @@ const getSingleApartmentFromDB = async (
     {
       path: 'createdBy',
       select: 'name email role',
+    },
+    {
+      path: 'electricityConfig.providerOverrideId',
+      select: 'name code isActive',
     },
     currentTenancyPopulate,
   ]);
@@ -195,6 +202,74 @@ const updateApartmentInDB = async (
     },
   )
     .populate('createdBy', 'name email role')
+    .populate('electricityConfig.providerOverrideId', 'name code isActive')
+    .populate(currentTenancyPopulate);
+};
+
+const updateApartmentElectricityConfigInDB = async (
+  apartmentId: string,
+  payload: TUpdateApartmentElectricityConfigPayload,
+  actor: TPropertyActor,
+) => {
+  const apartment = await getAccessibleApartment(apartmentId, actor);
+
+  if (!apartment) return null;
+
+  if (!payload.billingType) {
+    throw new Error('Electricity billing type is required.');
+  }
+
+  let providerOverrideId: Types.ObjectId | null = null;
+
+  if (payload.providerOverrideId) {
+    validateObjectId(
+      payload.providerOverrideId,
+      'Electricity provider override ID',
+    );
+
+    const provider = await ElectricityProviderModel.findOne({
+      _id: payload.providerOverrideId,
+      isActive: true,
+    }).select('_id');
+
+    if (!provider) {
+      throw new Error('A valid active electricity provider was not found.');
+    }
+
+    providerOverrideId = provider._id;
+  }
+
+  const paymentResponsibility =
+    payload.billingType === 'includedInRent' ||
+    payload.billingType === 'notApplicable'
+      ? 'notApplicable'
+      : (payload.paymentResponsibility ?? 'ownerCollects');
+
+  return ApartmentModel.findOneAndUpdate(
+    {
+      _id: apartment._id,
+      isDeleted: { $ne: true },
+    },
+    {
+      $set: {
+        electricityConfig: {
+          billingType: payload.billingType,
+          paymentResponsibility,
+          providerOverrideId,
+          meterNumber: payload.meterNumber?.trim() || null,
+          note: payload.note?.trim() || null,
+          updatedBy: new Types.ObjectId(actor.id),
+          updatedAt: new Date(),
+        },
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    },
+  )
+    .populate('createdBy', 'name email role')
+    .populate('electricityConfig.providerOverrideId', 'name code isActive')
     .populate(currentTenancyPopulate);
 };
 
@@ -269,5 +344,6 @@ export const ApartmentServices = {
   getApartmentsByPropertyFromDB,
   getSingleApartmentFromDB,
   updateApartmentInDB,
+  updateApartmentElectricityConfigInDB,
   deleteApartmentFromDB,
 };

@@ -1,6 +1,54 @@
 import { model, Schema } from 'mongoose';
 
+import {
+  ELECTRICITY_CONSUMER_CATEGORIES,
+  ELECTRICITY_METER_PHASES,
+} from '../electricity/electricity.interface';
 import { IProperty } from './property.interface';
+
+const propertyElectricitySettingsSchema = new Schema(
+  {
+    providerId: {
+      type: Schema.Types.ObjectId,
+      ref: 'ElectricityProvider',
+      required: true,
+    },
+    consumerCategory: {
+      type: String,
+      enum: ELECTRICITY_CONSUMER_CATEGORIES,
+      required: true,
+      default: 'LT_A_RESIDENTIAL',
+    },
+    accountNumber: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: [100, 'Electricity account number is too long.'],
+    },
+    defaultMeterPhase: {
+      type: String,
+      enum: ELECTRICITY_METER_PHASES,
+      required: true,
+      default: 'singlePhase',
+    },
+    tariffSelection: {
+      type: String,
+      enum: ['automatic'],
+      required: true,
+      default: 'automatic',
+    },
+    updatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    updatedAt: {
+      type: Date,
+      required: true,
+    },
+  },
+  { _id: false },
+);
 
 const propertySchema = new Schema<IProperty>(
   {
@@ -37,6 +85,11 @@ const propertySchema = new Schema<IProperty>(
       ref: 'User',
       required: true,
       index: true,
+    },
+
+    electricitySettings: {
+      type: propertyElectricitySettingsSchema,
+      default: null,
     },
 
     isDeleted: {
