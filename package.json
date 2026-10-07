@@ -14,7 +14,8 @@
     "start:prod": "node ./dist/server.js",
     "seed:super-admin": "tsx src/scripts/seedSuperAdmin.ts",
     "seed:dummy-users": "tsx src/scripts/seedDummyUsers.ts",
-    "seed:electricity": "tsx src/scripts/seedElectricity.ts"
+    "seed:electricity": "tsx src/scripts/seedElectricity.ts",
+    "migrate:apartment-charges": "tsx src/scripts/migrateApartmentChargeAmounts.ts"
   },
   "keywords": [],
   "author": "",
