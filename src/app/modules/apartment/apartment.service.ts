@@ -15,7 +15,8 @@ import { ApartmentModel } from './apartment.model';
 
 const currentTenancyPopulate = {
   path: 'currentTenancy',
-  select: 'tenantId startDate status note',
+  select:
+    'tenantId startDate status note rentTerms rentRateHistory',
   populate: {
     path: 'tenantId',
     select: 'name email phone photo userStatus role',
