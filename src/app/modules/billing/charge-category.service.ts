@@ -115,9 +115,7 @@ const getChargeCategoriesFromDB = async (
 
   return ChargeCategoryModel.find({
     ownerId: resolvedOwnerId,
-    ...(includeInactive && actor.role === 'superAdmin'
-      ? {}
-      : { isActive: true }),
+    ...(includeInactive ? {} : { isActive: true }),
   })
     .sort({ sortOrder: 1, name: 1 })
     .lean();
