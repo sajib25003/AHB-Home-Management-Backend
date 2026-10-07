@@ -28,6 +28,13 @@ export interface IApartmentElectricityConfig {
   updatedAt: Date;
 }
 
+export interface IApartmentChargeSetting {
+  categoryId: Types.ObjectId;
+  amount?: number | null;
+  updatedBy: Types.ObjectId;
+  updatedAt: Date;
+}
+
 export interface IApartment {
   propertyId: Types.ObjectId;
   apartmentNumber: string;
@@ -36,6 +43,7 @@ export interface IApartment {
   createdBy: Types.ObjectId;
 
   electricityConfig?: IApartmentElectricityConfig | null;
+  chargeSettings?: IApartmentChargeSetting[];
 
   isDeleted: boolean;
   deletedAt?: Date | null;
@@ -62,4 +70,11 @@ export type TUpdateApartmentElectricityConfigPayload = {
   paymentResponsibility?: TElectricityPaymentResponsibility;
   meterNumber?: string | null;
   note?: string | null;
+};
+
+export type TUpdateApartmentChargeSettingsPayload = {
+  charges: Array<{
+    categoryId: string;
+    amount?: number | null;
+  }>;
 };
