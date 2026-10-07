@@ -4,9 +4,11 @@ import { IProperty } from '../property/property.interface';
 import type { TPropertyActor } from '../property/property.service';
 import { PropertyModel } from '../property/property.model';
 import { TenancyModel } from '../tenancy/tenancy.model';
+import { ChargeCategoryModel } from '../billing/charge-category.model';
 import {
   IApartment,
   TCreateApartmentPayload,
+  TUpdateApartmentChargeSettingsPayload,
   TUpdateApartmentElectricityConfigPayload,
   TUpdateApartmentPayload,
 } from './apartment.interface';
@@ -20,6 +22,11 @@ const currentTenancyPopulate = {
     path: 'tenantId',
     select: 'name email phone photo userStatus role',
   },
+};
+
+const chargeSettingsPopulate = {
+  path: 'chargeSettings.categoryId',
+  select: 'name code defaultMode isActive sortOrder',
 };
 
 const validateObjectId = (id: string, fieldName: string) => {
@@ -123,6 +130,7 @@ const getApartmentsByPropertyFromDB = async (
     isDeleted: { $ne: true },
   })
     .populate('createdBy', 'name email role')
+    .populate(chargeSettingsPopulate)
     .populate(currentTenancyPopulate)
     .sort({ apartmentNumber: 1 })
     .lean();
@@ -150,6 +158,7 @@ const getSingleApartmentFromDB = async (
       path: 'createdBy',
       select: 'name email role',
     },
+    chargeSettingsPopulate,
     currentTenancyPopulate,
   ]);
 
@@ -197,7 +206,89 @@ const updateApartmentInDB = async (
     },
   )
     .populate('createdBy', 'name email role')
+    .populate(chargeSettingsPopulate)
     .populate(currentTenancyPopulate);
+};
+
+const updateApartmentChargeSettingsInDB = async (
+  apartmentId: string,
+  payload: TUpdateApartmentChargeSettingsPayload,
+  actor: TPropertyActor,
+) => {
+  const apartment = await getAccessibleApartment(apartmentId, actor);
+
+  if (!apartment) return null;
+
+  if (!Array.isArray(payload.charges)) {
+    throw new Error('Apartment charge settings are required.');
+  }
+
+  const categoryIds = payload.charges.map((charge) => charge.categoryId);
+
+  if (new Set(categoryIds).size !== categoryIds.length) {
+    throw new Error('Duplicate charge categories are invalid.');
+  }
+
+  categoryIds.forEach((categoryId) =>
+    validateObjectId(categoryId, 'Charge category ID'),
+  );
+
+  const categories = await ChargeCategoryModel.find({
+    _id: { $in: categoryIds },
+    propertyId: apartment.propertyId,
+    isActive: true,
+  })
+    .select('_id defaultMode')
+    .lean();
+
+  if (categories.length !== categoryIds.length) {
+    throw new Error(
+      'One or more active charge categories are invalid for this property.',
+    );
+  }
+
+  const categoryModeById = new Map(
+    categories.map((category) => [
+      category._id.toString(),
+      category.defaultMode,
+    ]),
+  );
+  const now = new Date();
+  const actorId = new Types.ObjectId(actor.id);
+  const submittedCategoryIds = new Set(categoryIds);
+
+  const retainedSettings = (apartment.chargeSettings ?? []).filter(
+    (setting) => !submittedCategoryIds.has(setting.categoryId.toString()),
+  );
+
+  const submittedSettings = payload.charges.map((charge) => {
+    const mode = categoryModeById.get(charge.categoryId);
+    const supportsApartmentAmount = mode === 'fixed';
+    const amount = supportsApartmentAmount ? (charge.amount ?? null) : null;
+
+    if (
+      amount !== null &&
+      (typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0)
+    ) {
+      throw new Error('Apartment charge amount is invalid.');
+    }
+
+    return {
+      categoryId: new Types.ObjectId(charge.categoryId),
+      amount,
+      updatedBy: actorId,
+      updatedAt: now,
+    };
+  });
+
+  apartment.chargeSettings = [...retainedSettings, ...submittedSettings];
+  await apartment.save();
+
+  return apartment.populate([
+    { path: 'createdBy', select: 'name email role' },
+    chargeSettingsPopulate,
+    currentTenancyPopulate,
+  ]);
 };
 
 const updateApartmentElectricityConfigInDB = async (
@@ -317,5 +408,6 @@ export const ApartmentServices = {
   getSingleApartmentFromDB,
   updateApartmentInDB,
   updateApartmentElectricityConfigInDB,
+  updateApartmentChargeSettingsInDB,
   deleteApartmentFromDB,
 };
