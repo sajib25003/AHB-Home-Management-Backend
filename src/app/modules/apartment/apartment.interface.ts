@@ -22,7 +22,6 @@ export type TElectricityPaymentResponsibility =
 export interface IApartmentElectricityConfig {
   billingType: TApartmentElectricityBillingType;
   paymentResponsibility: TElectricityPaymentResponsibility;
-  providerOverrideId?: Types.ObjectId | null;
   meterNumber?: string | null;
   note?: string | null;
   updatedBy: Types.ObjectId;
@@ -61,7 +60,6 @@ export type TUpdateApartmentPayload = Partial<
 export type TUpdateApartmentElectricityConfigPayload = {
   billingType: TApartmentElectricityBillingType;
   paymentResponsibility?: TElectricityPaymentResponsibility;
-  providerOverrideId?: string | null;
   meterNumber?: string | null;
   note?: string | null;
 };
