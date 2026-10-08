@@ -46,6 +46,11 @@ const refreshCookieOptions: CookieOptions = {
   path: '/api/v1/auth',
 };
 
+const legacyCookieOptions: CookieOptions = {
+  ...baseCookieOptions,
+  path: '/',
+};
+
 type TTokenUser = {
   id: string;
   email: string;
@@ -122,6 +127,10 @@ const setAuthCookies = (
   accessToken: string,
   refreshToken: string,
 ) => {
+  // Remove cookies created by releases that used the broader root path.
+  res.clearCookie('accessToken', legacyCookieOptions);
+  res.clearCookie('refreshToken', legacyCookieOptions);
+
   res.cookie('accessToken', accessToken, {
     ...accessCookieOptions,
     maxAge: ACCESS_TOKEN_MAX_AGE,
@@ -136,6 +145,8 @@ const setAuthCookies = (
 const clearAuthCookies = (res: Response) => {
   res.clearCookie('accessToken', accessCookieOptions);
   res.clearCookie('refreshToken', refreshCookieOptions);
+  res.clearCookie('accessToken', legacyCookieOptions);
+  res.clearCookie('refreshToken', legacyCookieOptions);
 };
 
 const sendRefreshUnauthorized = (
