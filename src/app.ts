@@ -20,6 +20,7 @@ import propertyRouter from './app/modules/property/property.route';
 import tenancyRouter from './app/modules/tenancy/tenancy.route';
 import electricityRouter from './app/modules/electricity/electricity.route';
 import billingRouter from './app/modules/billing/billing.route';
+import rentBillRouter from './app/modules/rent-bill/rent-bill.route';
 
 const app: Application = express();
 
@@ -77,6 +78,7 @@ app.use('/api/v1/apartments', apartmentRouter);
 app.use('/api/v1/tenancies', tenancyRouter);
 app.use('/api/v1/electricity', electricityRouter);
 app.use('/api/v1/billing', billingRouter);
+app.use('/api/v1/rent-bills', rentBillRouter);
 
 const getAController = (req: Request, res: Response) => {
   res.send({

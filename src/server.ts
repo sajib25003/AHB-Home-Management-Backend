@@ -3,7 +3,6 @@ import config from './app/config';
 import mongoose from 'mongoose';
 import type { Server } from 'http';
 
-mongoose.set('sanitizeFilter', true);
 mongoose.set('strictQuery', true);
 
 let httpServer: Server | undefined;
