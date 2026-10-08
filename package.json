@@ -2,6 +2,9 @@
   "name": "znz-backend",
   "version": "1.0.0",
   "packageManager": "pnpm@12.3.4",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "main": "index.js",
   "scripts": {
     "build": "tsc",
@@ -22,30 +25,33 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "bcrypt": "^5.1.1",
+    "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^5.1.0",
-    "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.13.1"
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.6",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.24.5",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
-    "@types/bcrypt": "^5.0.2",
+    "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.10",
-    "@types/cors": "^2.8.17",
+    "@types/cors": "^2.8.19",
     "@types/eslint__js": "^8.42.3",
-    "@types/express": "^5.0.0",
-    "@types/jsonwebtoken": "^9.0.9",
-    "@types/node": "^22.10.2",
-    "eslint": "^9.23.0",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.19.1",
+    "eslint": "^9.38.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.2.1",
     "globals": "^15.14.0",
     "prettier": "^3.4.2",
     "tsx": "^4.23.13",
-    "typescript": "^5.7.2",
-    "typescript-eslint": "^8.18.1"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.1"
   }
 }

@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import type { CookieOptions, RequestHandler, Response } from 'express';
 import jwt, { type JwtPayload } from 'jsonwebtoken';
 
@@ -29,11 +30,20 @@ const REFRESH_TOKEN_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 
 const isProduction = config.node_env === 'production';
 
-const cookieOptions: CookieOptions = {
+const baseCookieOptions: CookieOptions = {
   httpOnly: true,
   secure: isProduction,
-  sameSite: isProduction ? 'none' : 'lax',
-  path: '/',
+  sameSite: config.cookie_same_site,
+};
+
+const accessCookieOptions: CookieOptions = {
+  ...baseCookieOptions,
+  path: '/api/v1',
+};
+
+const refreshCookieOptions: CookieOptions = {
+  ...baseCookieOptions,
+  path: '/api/v1/auth',
 };
 
 type TTokenUser = {
@@ -44,6 +54,7 @@ type TTokenUser = {
 
 type TDecodedToken = JwtPayload & {
   id?: string;
+  tokenType?: 'access' | 'refresh';
 };
 
 const createAccessToken = (user: TTokenUser) => {
@@ -52,11 +63,16 @@ const createAccessToken = (user: TTokenUser) => {
       id: user.id,
       email: user.email,
       role: user.role,
+      tokenType: 'access',
     },
     JWT_SECRET,
     {
       subject: user.id,
       expiresIn: ACCESS_TOKEN_EXPIRES_IN,
+      algorithm: 'HS256',
+      issuer: config.jwt_issuer,
+      audience: config.jwt_audience,
+      jwtid: randomUUID(),
     },
   );
 };
@@ -67,17 +83,34 @@ const createRefreshToken = (user: TTokenUser) => {
       id: user.id,
       email: user.email,
       role: user.role,
+      tokenType: 'refresh',
     },
     JWT_REFRESH_SECRET,
     {
       subject: user.id,
       expiresIn: REFRESH_TOKEN_EXPIRES_IN,
+      algorithm: 'HS256',
+      issuer: config.jwt_issuer,
+      audience: config.jwt_audience,
+      jwtid: randomUUID(),
     },
   );
 };
 
-const getUserIdFromToken = (token: string, secret: string): string | null => {
-  const decoded = jwt.verify(token, secret) as TDecodedToken;
+const getUserIdFromToken = (
+  token: string,
+  secret: string,
+  expectedTokenType: 'access' | 'refresh',
+): string | null => {
+  const decoded = jwt.verify(token, secret, {
+    algorithms: ['HS256'],
+    issuer: config.jwt_issuer,
+    audience: config.jwt_audience,
+  }) as TDecodedToken;
+
+  if (decoded.tokenType !== expectedTokenType) {
+    return null;
+  }
 
   const userId = typeof decoded.sub === 'string' ? decoded.sub : decoded.id;
 
@@ -90,19 +123,19 @@ const setAuthCookies = (
   refreshToken: string,
 ) => {
   res.cookie('accessToken', accessToken, {
-    ...cookieOptions,
+    ...accessCookieOptions,
     maxAge: ACCESS_TOKEN_MAX_AGE,
   });
 
   res.cookie('refreshToken', refreshToken, {
-    ...cookieOptions,
+    ...refreshCookieOptions,
     maxAge: REFRESH_TOKEN_MAX_AGE,
   });
 };
 
 const clearAuthCookies = (res: Response) => {
-  res.clearCookie('accessToken', cookieOptions);
-  res.clearCookie('refreshToken', cookieOptions);
+  res.clearCookie('accessToken', accessCookieOptions);
+  res.clearCookie('refreshToken', refreshCookieOptions);
 };
 
 const sendRefreshUnauthorized = (
@@ -221,7 +254,11 @@ const refreshAccessToken: RequestHandler = async (req, res) => {
     let userId: string | null = null;
 
     try {
-      userId = getUserIdFromToken(currentRefreshToken, JWT_REFRESH_SECRET);
+      userId = getUserIdFromToken(
+        currentRefreshToken,
+        JWT_REFRESH_SECRET,
+        'refresh',
+      );
     } catch {
       sendRefreshUnauthorized(res, 'Refresh token is invalid or expired.');
       return;
@@ -353,7 +390,11 @@ const logoutUser: RequestHandler = async (req, res) => {
 
     if (typeof refreshToken === 'string') {
       try {
-        const userId = getUserIdFromToken(refreshToken, JWT_REFRESH_SECRET);
+        const userId = getUserIdFromToken(
+          refreshToken,
+          JWT_REFRESH_SECRET,
+          'refresh',
+        );
 
         if (userId) {
           const user = await AuthServices.getUserByIdFromDB(userId);

@@ -64,8 +64,7 @@ const notDeletedFilter: FilterQuery<IUser> = {
   isDeleted: { $ne: true },
 };
 
-const hasGlobalAccess = (role: TUserRole) =>
-  role === 'superAdmin' || role === 'admin';
+const hasGlobalAccess = (role: TUserRole) => role === 'superAdmin';
 
 const buildAccessibleUserFilter = (
   id: string,
@@ -113,13 +112,6 @@ const validateRequestedRole = (
     throw new Error('Owner can only create tenant accounts.');
   }
 
-  if (
-    actor.role === 'admin' &&
-    ['admin', 'superAdmin'].includes(requestedRole)
-  ) {
-    throw new Error('Admin cannot create admin or super-admin accounts.');
-  }
-
   if (actor.role !== 'superAdmin' && requestedRole === 'superAdmin') {
     throw new Error('Only a super admin can create another super admin.');
   }
@@ -129,7 +121,7 @@ const createUserIntoDB = async (
   payload: TCreateUserPayload,
   actor: TAuthenticatedUser,
 ) => {
-  if (!['superAdmin', 'admin', 'owner'].includes(actor.role)) {
+  if (!['superAdmin', 'owner'].includes(actor.role)) {
     throw new Error('You are not authorized to create users.');
   }
 

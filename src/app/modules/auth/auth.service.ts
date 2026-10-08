@@ -19,6 +19,7 @@ const getUserByIdFromDB = async (userId: string) => {
 
   return UserModel.findOne({
     _id: userId,
+    userStatus: 'active',
     isDeleted: { $ne: true },
   })
     .select('+refreshTokenHash')

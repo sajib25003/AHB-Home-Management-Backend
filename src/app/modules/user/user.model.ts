@@ -13,16 +13,19 @@ const userSchema = new Schema<IUser>(
         type: String,
         required: [true, 'First name is required'],
         trim: true,
+        maxlength: [80, 'First name cannot exceed 80 characters'],
       },
       middleName: {
         type: String,
         default: null,
         trim: true,
+        maxlength: [80, 'Middle name cannot exceed 80 characters'],
       },
       lastName: {
         type: String,
         required: [true, 'Last name is required'],
         trim: true,
+        maxlength: [80, 'Last name cannot exceed 80 characters'],
       },
     },
 
@@ -32,17 +35,21 @@ const userSchema = new Schema<IUser>(
       unique: true,
       trim: true,
       lowercase: true,
+      maxlength: [254, 'Email cannot exceed 254 characters'],
+      match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Email address is invalid'],
     },
 
     phone: {
       type: String,
       trim: true,
+      maxlength: [30, 'Phone number cannot exceed 30 characters'],
     },
 
     photo: {
       type: String,
       default: null,
       trim: true,
+      maxlength: [2048, 'Photo URL cannot exceed 2048 characters'],
     },
 
     userStatus: {
@@ -64,6 +71,7 @@ const userSchema = new Schema<IUser>(
     address: {
       type: String,
       trim: true,
+      maxlength: [500, 'Address cannot exceed 500 characters'],
     },
 
     dateOfBirth: {
@@ -72,7 +80,7 @@ const userSchema = new Schema<IUser>(
 
     password: {
       type: String,
-      required: function () {
+      required: function (this: IUser): boolean {
         return this.provider === 'credentials';
       },
       select: false,
@@ -97,7 +105,7 @@ const userSchema = new Schema<IUser>(
       ref: 'User',
       default: null,
       index: true,
-      required: function () {
+      required: function (this: IUser): boolean {
         return this.role === 'tenant';
       },
     },

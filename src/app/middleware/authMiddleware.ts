@@ -14,6 +14,7 @@ if (!JWT_SECRET) {
 type TAccessTokenPayload = JwtPayload & {
   id?: string;
   email?: string;
+  tokenType?: 'access' | 'refresh';
 };
 
 const authMiddleware: RequestHandler = async (req, res, next) => {
@@ -33,7 +34,19 @@ const authMiddleware: RequestHandler = async (req, res, next) => {
       return;
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET) as TAccessTokenPayload;
+    const decoded = jwt.verify(token, JWT_SECRET, {
+      algorithms: ['HS256'],
+      issuer: config.jwt_issuer,
+      audience: config.jwt_audience,
+    }) as TAccessTokenPayload;
+
+    if (decoded.tokenType !== 'access') {
+      res.status(401).json({
+        success: false,
+        message: 'Unauthorized: Invalid token type.',
+      });
+      return;
+    }
     const userId = typeof decoded.sub === 'string' ? decoded.sub : decoded.id;
 
     if (!userId) {

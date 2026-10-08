@@ -130,28 +130,7 @@ const seedDummyUsers = async () => {
     );
 
     /*
-     * 2. System Admin
-     */
-    const admin = await upsertDummyUser(
-      {
-        name: {
-          firstName: 'Demo',
-          middleName: null,
-          lastName: 'System Admin',
-        },
-        email: `admin${DUMMY_EMAIL_DOMAIN}`,
-        phone: '01700000002',
-        role: 'admin',
-        address: 'Uttara, Dhaka',
-        dateOfBirth: new Date('1990-03-20'),
-        createdBy: superAdmin._id,
-        ownerId: null,
-      },
-      passwordHash,
-    );
-
-    /*
-     * 3. Property Owners
+     * 2. Property Owners
      */
     const ownerOne = await upsertDummyUser(
       {
@@ -165,7 +144,7 @@ const seedDummyUsers = async () => {
         role: 'owner',
         address: 'Pallabi, Mirpur, Dhaka',
         dateOfBirth: new Date('1985-06-12'),
-        createdBy: admin._id,
+        createdBy: superAdmin._id,
         ownerId: null,
       },
       passwordHash,
@@ -183,7 +162,7 @@ const seedDummyUsers = async () => {
         role: 'owner',
         address: 'Dhanmondi, Dhaka',
         dateOfBirth: new Date('1982-09-25'),
-        createdBy: admin._id,
+        createdBy: superAdmin._id,
         ownerId: null,
       },
       passwordHash,
@@ -283,7 +262,7 @@ const seedDummyUsers = async () => {
         role: 'user',
         address: 'Mohammadpur, Dhaka',
         dateOfBirth: new Date('1994-12-08'),
-        createdBy: admin._id,
+        createdBy: superAdmin._id,
         ownerId: null,
         personalCashflow: true,
       },
@@ -302,7 +281,7 @@ const seedDummyUsers = async () => {
         role: 'user',
         address: 'Badda, Dhaka',
         dateOfBirth: new Date('1992-08-14'),
-        createdBy: admin._id,
+        createdBy: superAdmin._id,
         ownerId: null,
         personalCashflow: true,
       },

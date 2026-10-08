@@ -1,12 +1,6 @@
 import { Types } from 'mongoose';
 
-export const USER_ROLES = [
-  'user',
-  'tenant',
-  'owner',
-  'admin',
-  'superAdmin',
-] as const;
+export const USER_ROLES = ['user', 'tenant', 'owner', 'superAdmin'] as const;
 
 export const USER_STATUSES = ['active', 'inactive'] as const;
 export const AUTH_PROVIDERS = ['credentials', 'google'] as const;
