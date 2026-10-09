@@ -203,6 +203,46 @@ async function run() {
     ),
     /cannot be after/,
   );
+  const originalTariffLookup = ElectricityTariffScheduleModel.findOne;
+  ElectricityTariffScheduleModel.findOne = (() => {
+    throw new Error('Manual average must not use provider tariff');
+  }) as never;
+  const average = await SubmeterServices.preview(
+    { ...payload, useAverageRate: true, averageRate: 8.1234 },
+    actor,
+  );
+  assert.equal(average.energyCharge, 812.34);
+  assert.equal(average.vatAmount, 0);
+  assert.equal(average.totalAmount, 817.34); // 100 units + meter 10 + adjustment -5
+  for (const rate of [0, -1, NaN, Infinity, null]) {
+    await assert.rejects(
+      SubmeterServices.preview(
+        { ...payload, useAverageRate: true, averageRate: rate },
+        actor,
+      ),
+      /Average rate/,
+    );
+  }
+  await assert.rejects(
+    SubmeterServices.preview(
+      {
+        ...payload,
+        useAverageRate: true,
+        averageRate: 8,
+        adjustmentAmount: NaN,
+      },
+      actor,
+    ),
+    /adjustment/,
+  );
+  const manualSaved = await SubmeterServices.save(
+    { ...payload, useAverageRate: true, averageRate: 8.1234 },
+    actor,
+  );
+  assert.equal(manualSaved.useAverageRate, true);
+  assert.equal(manualSaved.averageRate, 8.1234);
+  assert.equal(manualSaved.calculation.breakdown[0].rate, 8.1234);
+  ElectricityTariffScheduleModel.findOne = originalTariffLookup;
   existing = { _id: new Types.ObjectId(), apartmentId, revision: 0 };
   await assert.rejects(SubmeterServices.save(payload, actor), /has changed/);
   dueBills = [
@@ -287,7 +327,7 @@ async function run() {
   );
   assert.equal(createdBill.totalAmount, 2556.75);
   console.log(
-    'PASS: dated readings, editable baseline, next-month reading date, revisions, owner isolation, automatic due-bill sync, tariff math, blank and auto-filled electricity in real bill service',
+    'PASS: manual average rate without provider tariff or extra VAT, validation and persistence; dated readings, editable baseline, next-month reading date, revisions, owner isolation, automatic due-bill sync, tariff math, blank and auto-filled electricity in real bill service',
   );
 }
 void run();

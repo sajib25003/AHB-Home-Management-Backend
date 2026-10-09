@@ -1,9 +1,14 @@
 import { model, Schema, Types } from 'mongoose';
 import type { ElectricityServices } from './electricity.service';
 
-export type SubmeterCalculation = Awaited<
+type ProviderCalculation = Awaited<
   ReturnType<typeof ElectricityServices.calculateElectricityBill>
 >;
+export type SubmeterCalculation = Omit<ProviderCalculation, 'tariff'> & {
+  tariff: Omit<ProviderCalculation['tariff'], 'id'> & {
+    id: Types.ObjectId | null;
+  };
+};
 export interface ISubmeterReading {
   ownerId: Types.ObjectId;
   propertyId: Types.ObjectId;
@@ -13,6 +18,8 @@ export interface ISubmeterReading {
   previousReadingDate: string;
   currentReadingDate: string;
   revision: number;
+  useAverageRate?: boolean;
+  averageRate?: number | null;
   updatedBy?: Types.ObjectId;
   previousReading: number;
   currentReading: number;
@@ -43,6 +50,8 @@ const schema = new Schema<ISubmeterReading>(
     previousReadingDate: { type: String, required: true },
     currentReadingDate: { type: String, required: true },
     revision: { type: Number, default: 0 },
+    useAverageRate: { type: Boolean, default: false },
+    averageRate: { type: Number, min: 0, default: null },
     updatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     previousReading: { type: Number, min: 0, required: true },
     currentReading: { type: Number, min: 0, required: true },

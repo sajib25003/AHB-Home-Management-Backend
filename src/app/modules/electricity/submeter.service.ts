@@ -4,7 +4,10 @@ import { PropertyModel } from '../property/property.model';
 import type { TPropertyActor } from '../property/property.service';
 import { MonthlyRentBillModel } from '../rent-bill/rent-bill.model';
 import { ElectricityServices } from './electricity.service';
-import { SubmeterReadingModel } from './submeter.model';
+import {
+  type SubmeterCalculation,
+  SubmeterReadingModel,
+} from './submeter.model';
 
 export type SubmeterPayload = {
   apartmentId: string;
@@ -12,6 +15,8 @@ export type SubmeterPayload = {
   previousReadingDate: string;
   currentReadingDate: string;
   expectedRevision?: number | null;
+  useAverageRate?: boolean;
+  averageRate?: number | null;
   previousReading: number;
   currentReading: number;
   meterCharge?: number;
@@ -57,8 +62,6 @@ const loadContext = async (
     throw new Error(
       'Submeter number is required in apartment electricity settings.',
     );
-  if (!property.electricitySettings?.providerId)
-    throw new Error('Electricity provider is required in property settings.');
   const [existing, previous] = await Promise.all([
     SubmeterReadingModel.findOne({
       apartmentId: apartment._id,
@@ -154,16 +157,64 @@ const prepare = async (payload: SubmeterPayload, actor: TPropertyActor) => {
   const consumedUnit = Number(
     (payload.currentReading - payload.previousReading).toFixed(2),
   );
-  const calculation = await ElectricityServices.calculateElectricityBill(
-    {
-      providerId: context.property.electricitySettings!.providerId.toString(),
+  if (
+    payload.useAverageRate !== undefined &&
+    typeof payload.useAverageRate !== 'boolean'
+  )
+    throw new Error('Average rate option is invalid.');
+  let calculation: SubmeterCalculation;
+  if (payload.useAverageRate) {
+    const rate = payload.averageRate;
+    if (typeof rate !== 'number' || !Number.isFinite(rate) || rate <= 0)
+      throw new Error('Average rate must be a valid positive amount per unit.');
+    const adjustment = payload.adjustmentAmount ?? 0;
+    if (typeof adjustment !== 'number' || !Number.isFinite(adjustment))
+      throw new Error('Electricity adjustment amount is invalid.');
+    const round = (value: number) => Number(value.toFixed(2));
+    const energyCharge = round(consumedUnit * rate);
+    const meterCharge = round(payload.meterCharge ?? 0);
+    const adjustmentAmount = round(adjustment);
+    calculation = {
+      tariff: {
+        id: null,
+        name: `Manual average rate · ৳${rate}/unit`,
+        effectiveFrom: context.start,
+        effectiveTo: null,
+        lifeline: { maximumUnit: 0, rate },
+        slabs: [],
+        vatPercentage: 0,
+      },
       consumedUnit,
-      applicableDate: context.start,
-      meterChargeOverride: payload.meterCharge ?? 0,
-      adjustmentAmount: payload.adjustmentAmount ?? 0,
-    },
-    actor,
-  );
+      breakdown: [
+        {
+          label: 'Average rate',
+          unit: consumedUnit,
+          rate,
+          amount: energyCharge,
+        },
+      ],
+      energyCharge,
+      meterCharge,
+      vatAmount: 0,
+      adjustmentAmount,
+      totalAmount: round(energyCharge + meterCharge + adjustmentAmount),
+    };
+    if (!Number.isFinite(calculation.totalAmount))
+      throw new Error('Electricity total is invalid.');
+  } else {
+    if (!context.property.electricitySettings?.providerId)
+      throw new Error('Electricity provider is required in property settings.');
+    calculation = await ElectricityServices.calculateElectricityBill(
+      {
+        providerId: context.property.electricitySettings.providerId.toString(),
+        consumedUnit,
+        applicableDate: context.start,
+        meterChargeOverride: payload.meterCharge ?? 0,
+        adjustmentAmount: payload.adjustmentAmount ?? 0,
+      },
+      actor,
+    );
+  }
   if (calculation.totalAmount < 0)
     throw new Error('Electricity total cannot be negative.');
   const dueBills = await MonthlyRentBillModel.find({
@@ -293,6 +344,8 @@ const save = async (payload: SubmeterPayload, actor: TPropertyActor) => {
     currentReadingDate: payload.currentReadingDate,
     consumedUnit,
     calculation,
+    useAverageRate: payload.useAverageRate ?? false,
+    averageRate: payload.useAverageRate ? payload.averageRate : null,
     updatedBy: actor.id,
   };
   let record;
