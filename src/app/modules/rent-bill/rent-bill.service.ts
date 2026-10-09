@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { SubmeterReadingModel } from '../electricity/submeter.model';
 import { FilterQuery, Types } from 'mongoose';
 
 import { ApartmentModel } from '../apartment/apartment.model';
@@ -295,7 +296,20 @@ const getGenerationContextFromDB = async (
     });
   }
 
+  const submeterRequired = parties.apartment.electricityConfig?.billingType === 'submeter'
+    && parties.apartment.electricityConfig.paymentResponsibility === 'ownerCollects';
+  if (submeterRequired && !items.some((item) => item.key === 'ELECTRICITY')) {
+    items.push({ categoryId: null, key: 'ELECTRICITY', label: 'Electricity Bill', amount: null, type: 'variable' });
+  }
+  const submeterReading = submeterRequired ? await SubmeterReadingModel.findOne({ apartmentId: tenancy.apartmentId, billingPeriod }).lean() : null;
+  if (submeterReading) {
+    const electricity = items.find((item) => item.key === 'ELECTRICITY');
+    if (electricity) electricity.amount = submeterReading.calculation.totalAmount;
+  }
+
   return {
+    submeterRequired,
+    submeterReading,
     billingPeriod,
     tenantAssignmentId: tenancy._id.toString(),
     owner: {
@@ -391,6 +405,10 @@ const normalizeItems = async (
     };
   });
 
+  if (new Set(normalized.map((item) => item.key)).size !== normalized.length) {
+    throw new Error('Duplicate bill item keys are invalid.');
+  }
+
   if (!normalized.some((item) => item.key === 'BASE_RENT')) {
     throw new Error('Base rent is required in every monthly rent bill.');
   }
@@ -443,6 +461,14 @@ const createRentBillIntoDB = async (
 
   const parties = await loadBillParties(tenancy);
   const items = await normalizeItems(payload.items, tenancy.propertyId);
+  const submeterRequired = parties.apartment.electricityConfig?.billingType === 'submeter'
+    && parties.apartment.electricityConfig.paymentResponsibility === 'ownerCollects';
+  const submeterReading = submeterRequired ? await SubmeterReadingModel.findOne({ apartmentId: tenancy.apartmentId, billingPeriod: payload.billingPeriod }).lean() : null;
+  if (submeterRequired) {
+    if (!submeterReading) throw new Error('A saved submeter reading is required before issuing this rent bill.');
+    const electricity = items.find((item) => item.key === 'ELECTRICITY');
+    if (!electricity || electricity.amount !== submeterReading.calculation.totalAmount) throw new Error('Electricity amount must match the saved submeter calculation. Use bill adjustment for any correction.');
+  }
   const totals = calculateTotals(items, payload.adjustmentAmount ?? 0);
   const dueDate =
     parseOptionalDate(payload.dueDate, 'Due date') ??
@@ -475,6 +501,7 @@ const createRentBillIntoDB = async (
       phone: parties.tenant.phone ?? null,
     },
     items,
+    submeterReading,
     ...totals,
     adjustmentNote:
       normalizeText(payload.adjustmentNote, 1000) ?? null,
@@ -654,6 +681,10 @@ const updateRentBillInDB = async (
   }
 
   const items = await normalizeItems(payload.items, bill.propertyId);
+  if (bill.submeterReading) {
+    const electricity = items.find((item) => item.key === 'ELECTRICITY');
+    if (!electricity || electricity.amount !== bill.submeterReading.calculation.totalAmount) throw new Error('Electricity amount must match the saved submeter calculation. Use bill adjustment for any correction.');
+  }
   const totals = calculateTotals(items, payload.adjustmentAmount ?? 0);
 
   bill.items = items;

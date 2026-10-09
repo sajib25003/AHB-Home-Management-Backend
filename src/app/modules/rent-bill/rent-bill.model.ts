@@ -128,6 +128,7 @@ const monthlyRentBillSchema = new Schema<IMonthlyRentBill>(
       email: { type: String, required: true, trim: true, lowercase: true },
       phone: { type: String, default: null, trim: true },
     },
+    submeterReading: { type: Schema.Types.Mixed, default: null },
     items: {
       type: [rentBillItemSchema],
       required: true,

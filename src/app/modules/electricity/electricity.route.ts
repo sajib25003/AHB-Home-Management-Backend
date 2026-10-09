@@ -3,10 +3,15 @@ import { Router } from 'express';
 import authMiddleware from '../../middleware/authMiddleware';
 import authorizeRoles from '../../middleware/authorizeRoles';
 import { ElectricityController } from './electricity.controller';
+import { SubmeterController } from './submeter.controller';
 
 const electricityRouter = Router();
 
 electricityRouter.use(authMiddleware);
+
+electricityRouter.get('/submeter/context', authorizeRoles('superAdmin', 'owner'), SubmeterController.context);
+electricityRouter.post('/submeter/preview', authorizeRoles('superAdmin', 'owner'), SubmeterController.preview);
+electricityRouter.post('/submeter/readings', authorizeRoles('superAdmin', 'owner'), SubmeterController.save);
 
 electricityRouter.post(
   '/calculate',

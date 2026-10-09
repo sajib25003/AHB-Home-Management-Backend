@@ -1,4 +1,5 @@
 import { Types } from 'mongoose';
+import type { ISubmeterReading } from '../electricity/submeter.model';
 
 export const RENT_BILL_STATUSES = ['due', 'paid', 'void'] as const;
 export const RENT_BILL_ITEM_TYPES = [
@@ -34,6 +35,7 @@ export interface IRentBillStatusHistory {
 }
 
 export interface IMonthlyRentBill {
+  submeterReading?: ISubmeterReading | null;
   receiptNumber: string;
   billingPeriod: string;
 
