@@ -61,7 +61,7 @@ const ensureDateIsNotFuture = (date: Date, fieldName: string) => {
 const tenancyPopulate = [
   {
     path: 'tenantId',
-    select: 'name email phone photo userStatus role ownerId',
+    select: 'name email phone photo userStatus role ownerId isDeleted',
   },
   {
     path: 'ownerId',
