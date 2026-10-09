@@ -119,6 +119,7 @@ export type TUpdateRentBillStatusPayload = {
 
 export type TRentBillListQuery = {
   year?: number;
+  month?: number;
   ownerId?: string;
   propertyId?: string;
   apartmentId?: string;

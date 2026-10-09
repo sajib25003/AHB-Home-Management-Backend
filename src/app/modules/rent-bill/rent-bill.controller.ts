@@ -170,6 +170,7 @@ const getAllRentBills: RequestHandler = async (req, res) => {
 
     const query: TRentBillListQuery = {
       year: parsePositiveInteger(req.query.year, 'Billing year'),
+      month: parsePositiveInteger(req.query.month, 'Billing month'),
       ownerId:
         typeof req.query.ownerId === 'string' ? req.query.ownerId : undefined,
       propertyId:

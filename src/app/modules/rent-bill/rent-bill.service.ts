@@ -543,6 +543,16 @@ const getAllRentBillsFromDB = async (
     filter.billingPeriod = { $regex: `^${query.year}-` };
   }
 
+  if (query.month !== undefined) {
+    if (!Number.isInteger(query.month) || query.month < 1 || query.month > 12) {
+      throw new Error('Billing month is invalid.');
+    }
+    if (query.year === undefined) {
+      throw new Error('Billing year is required when filtering by month.');
+    }
+    filter.billingPeriod = `${query.year}-${String(query.month).padStart(2, '0')}`;
+  }
+
   if (actor.role === 'tenant') {
     filter.tenantId = new Types.ObjectId(actor.id);
     filter.status = { $ne: 'void' };
