@@ -10,6 +10,10 @@ export interface ISubmeterReading {
   apartmentId: Types.ObjectId;
   billingPeriod: string;
   meterNumber: string;
+  previousReadingDate: string;
+  currentReadingDate: string;
+  revision: number;
+  updatedBy?: Types.ObjectId;
   previousReading: number;
   currentReading: number;
   consumedUnit: number;
@@ -36,6 +40,10 @@ const schema = new Schema<ISubmeterReading>(
       match: /^\d{4}-(0[1-9]|1[0-2])$/,
     },
     meterNumber: { type: String, required: true },
+    previousReadingDate: { type: String, required: true },
+    currentReadingDate: { type: String, required: true },
+    revision: { type: Number, default: 0 },
+    updatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     previousReading: { type: Number, min: 0, required: true },
     currentReading: { type: Number, min: 0, required: true },
     consumedUnit: { type: Number, min: 0, required: true },

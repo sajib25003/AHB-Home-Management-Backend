@@ -23,7 +23,7 @@ export interface IRentBillItem {
   categoryId?: Types.ObjectId | null;
   key: string;
   label: string;
-  amount: number;
+  amount: number | null;
   type: TRentBillItemType;
 }
 
@@ -35,6 +35,7 @@ export interface IRentBillStatusHistory {
 }
 
 export interface IMonthlyRentBill {
+  submeterManaged?: boolean;
   submeterReading?: ISubmeterReading | null;
   receiptNumber: string;
   billingPeriod: string;
@@ -88,7 +89,7 @@ export type TRentBillItemPayload = {
   categoryId?: string | null;
   key?: string;
   label: string;
-  amount: number;
+  amount: number | null;
   type: TRentBillItemType;
 };
 

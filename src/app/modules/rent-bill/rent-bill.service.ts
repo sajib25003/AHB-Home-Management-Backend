@@ -173,7 +173,7 @@ const loadBillParties = async (tenancy: {
       propertyId: tenancy.propertyId,
       isDeleted: { $ne: true },
     })
-      .select('apartmentNumber propertyId chargeSettings')
+      .select('apartmentNumber propertyId chargeSettings electricityConfig')
       .lean(),
   ]);
 
@@ -381,9 +381,9 @@ const normalizeItems = async (
     }
 
     if (
-      typeof item.amount !== 'number' ||
+      !(item.amount === null && item.key?.trim().toUpperCase() === 'ELECTRICITY') && (typeof item.amount !== 'number' ||
       !Number.isFinite(item.amount) ||
-      item.amount < 0
+      item.amount < 0)
     ) {
       throw new Error(`${label} amount is invalid.`);
     }
@@ -400,7 +400,7 @@ const normalizeItems = async (
         : null,
       key,
       label,
-      amount: roundMoney(item.amount),
+      amount: item.amount === null ? null : roundMoney(item.amount),
       type: item.type,
     };
   });
@@ -413,9 +413,6 @@ const normalizeItems = async (
     throw new Error('Base rent is required in every monthly rent bill.');
   }
 
-  if (new Set(normalized.map((item) => item.key)).size !== normalized.length) {
-    throw new Error('Duplicate bill item keys are invalid.');
-  }
 
   return normalized;
 };
@@ -426,7 +423,7 @@ const calculateTotals = (items: IRentBillItem[], adjustmentAmount = 0) => {
   }
 
   const subtotal = roundMoney(
-    items.reduce((total, item) => total + item.amount, 0),
+    items.reduce((total, item) => total + (item.amount ?? 0), 0),
   );
   const normalizedAdjustment = roundMoney(adjustmentAmount);
   const totalAmount = roundMoney(subtotal + normalizedAdjustment);
@@ -460,15 +457,17 @@ const createRentBillIntoDB = async (
   assertTenancyCoversPeriod(tenancy, period.start, period.end);
 
   const parties = await loadBillParties(tenancy);
-  const items = await normalizeItems(payload.items, tenancy.propertyId);
   const submeterRequired = parties.apartment.electricityConfig?.billingType === 'submeter'
     && parties.apartment.electricityConfig.paymentResponsibility === 'ownerCollects';
   const submeterReading = submeterRequired ? await SubmeterReadingModel.findOne({ apartmentId: tenancy.apartmentId, billingPeriod: payload.billingPeriod }).lean() : null;
+  if (!Array.isArray(payload.items)) throw new Error('Bill items are required.');
+  const sourceItems = payload.items.map((item) => ({ ...item }));
   if (submeterRequired) {
-    if (!submeterReading) throw new Error('A saved submeter reading is required before issuing this rent bill.');
-    const electricity = items.find((item) => item.key === 'ELECTRICITY');
-    if (!electricity || electricity.amount !== submeterReading.calculation.totalAmount) throw new Error('Electricity amount must match the saved submeter calculation. Use bill adjustment for any correction.');
+    const electricity = sourceItems.find((item) => item.key?.trim().toUpperCase() === 'ELECTRICITY');
+    if (electricity) electricity.amount = submeterReading?.calculation.totalAmount ?? null;
+    else sourceItems.push({ key: 'ELECTRICITY', label: 'Electricity Bill', type: 'variable', amount: submeterReading?.calculation.totalAmount ?? null });
   }
+  const items = await normalizeItems(sourceItems, tenancy.propertyId);
   const totals = calculateTotals(items, payload.adjustmentAmount ?? 0);
   const dueDate =
     parseOptionalDate(payload.dueDate, 'Due date') ??
@@ -502,6 +501,7 @@ const createRentBillIntoDB = async (
     },
     items,
     submeterReading,
+    submeterManaged: submeterRequired,
     ...totals,
     adjustmentNote:
       normalizeText(payload.adjustmentNote, 1000) ?? null,
@@ -681,9 +681,11 @@ const updateRentBillInDB = async (
   }
 
   const items = await normalizeItems(payload.items, bill.propertyId);
-  if (bill.submeterReading) {
+  if (bill.submeterManaged || bill.submeterReading) {
     const electricity = items.find((item) => item.key === 'ELECTRICITY');
-    if (!electricity || electricity.amount !== bill.submeterReading.calculation.totalAmount) throw new Error('Electricity amount must match the saved submeter calculation. Use bill adjustment for any correction.');
+    const amount = bill.submeterReading?.calculation.totalAmount ?? null;
+    if (electricity) electricity.amount = amount;
+    else items.push({ categoryId: null, key: 'ELECTRICITY', label: 'Electricity Bill', type: 'variable', amount });
   }
   const totals = calculateTotals(items, payload.adjustmentAmount ?? 0);
 

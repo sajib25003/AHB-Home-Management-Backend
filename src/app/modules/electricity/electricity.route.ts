@@ -9,6 +9,7 @@ const electricityRouter = Router();
 
 electricityRouter.use(authMiddleware);
 
+electricityRouter.get('/submeter/readings', authorizeRoles('superAdmin', 'owner'), SubmeterController.history);
 electricityRouter.get('/submeter/context', authorizeRoles('superAdmin', 'owner'), SubmeterController.context);
 electricityRouter.post('/submeter/preview', authorizeRoles('superAdmin', 'owner'), SubmeterController.preview);
 electricityRouter.post('/submeter/readings', authorizeRoles('superAdmin', 'owner'), SubmeterController.save);
