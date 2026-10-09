@@ -3,6 +3,7 @@ import { FilterQuery, Types } from 'mongoose';
 
 import { ApartmentModel } from '../apartment/apartment.model';
 import { ChargeCategoryModel } from '../billing/charge-category.model';
+import { ensureDefaultCategories } from '../billing/charge-category.service';
 import { PropertyModel } from '../property/property.model';
 import type { TPropertyActor } from '../property/property.service';
 import { TenancyModel } from '../tenancy/tenancy.model';
@@ -234,11 +235,17 @@ const getGenerationContextFromDB = async (
 
   const parties = await loadBillParties(tenancy);
   const baseRent = resolveBaseRent(tenancy, period.start, period.end);
-  const categoryIds = (parties.apartment.chargeSettings ?? []).map(
-    (setting) => setting.categoryId,
+
+  // Every active property category belongs in the monthly bill. Apartment
+  // settings only provide the per-apartment amount; they must not decide
+  // whether an otherwise active property category appears at all.
+  await ensureDefaultCategories(
+    tenancy.ownerId,
+    tenancy.propertyId,
+    actor.id,
   );
+
   const categories = await ChargeCategoryModel.find({
-    _id: { $in: categoryIds },
     propertyId: tenancy.propertyId,
     isActive: true,
   })

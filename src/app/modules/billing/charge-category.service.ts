@@ -77,7 +77,7 @@ const normalizeCode = (code: string) => {
   return normalizedCode;
 };
 
-const ensureDefaultCategories = async (
+export const ensureDefaultCategories = async (
   ownerId: Types.ObjectId,
   propertyId: Types.ObjectId,
   actorId: string,
