@@ -223,6 +223,13 @@ const createTariffScheduleIntoDB = async (
     throw new Error('VAT percentage is invalid.');
   }
 
+  if (
+    payload.demandChargePerKw !== undefined &&
+    (!Number.isFinite(payload.demandChargePerKw) ||
+      payload.demandChargePerKw < 0)
+  )
+    throw new Error('Demand charge per kW is invalid.');
+
   for (const meterCharge of payload.meterCharges ?? []) {
     if (
       !['singlePhase', 'threePhase'].includes(meterCharge.meterPhase) ||
@@ -315,6 +322,7 @@ const createTariffScheduleIntoDB = async (
     effectiveTo,
     lifeline: payload.lifeline,
     slabs: payload.slabs,
+    demandChargePerKw: payload.demandChargePerKw ?? 42,
     vatPercentage: payload.vatPercentage,
     meterCharges: payload.meterCharges ?? [],
     isActive: true,
@@ -482,6 +490,20 @@ const calculateElectricityBill = async (
     breakdown.reduce((total, item) => total + item.amount, 0),
   );
 
+  if (
+    payload.meterPhase !== undefined &&
+    !['singlePhase', 'threePhase'].includes(payload.meterPhase)
+  )
+    throw new Error('Meter phase is invalid.');
+  if (
+    payload.connectedLoad !== undefined &&
+    (!Number.isFinite(payload.connectedLoad) || payload.connectedLoad < 0)
+  )
+    throw new Error('Connected load is invalid.');
+  const demandChargePerKw = tariff.demandChargePerKw ?? 42;
+  const demandCharge = roundMoney(
+    (payload.connectedLoad ?? 0) * demandChargePerKw,
+  );
   let meterCharge = 0;
 
   if (payload.meterChargeOverride !== undefined) {
@@ -506,7 +528,13 @@ const calculateElectricityBill = async (
           connectedLoad <= item.loadTo),
     );
 
-    meterCharge = matchedMeterCharge?.amount ?? 0;
+    if (!matchedMeterCharge && tariff.meterCharges.length > 0)
+      throw new Error(
+        'No meter rent matches this phase/load in the tariff. Configure it or enter a meter rent override.',
+      );
+    meterCharge =
+      matchedMeterCharge?.amount ??
+      (payload.meterPhase === 'threePhase' ? 250 : 40);
   }
 
   const adjustmentAmount = payload.adjustmentAmount ?? 0;
@@ -516,10 +544,10 @@ const calculateElectricityBill = async (
   }
 
   const vatAmount = roundMoney(
-    ((energyCharge + meterCharge) * tariff.vatPercentage) / 100,
+    ((energyCharge + demandCharge + meterCharge) * tariff.vatPercentage) / 100,
   );
   const totalAmount = roundMoney(
-    energyCharge + meterCharge + vatAmount + adjustmentAmount,
+    energyCharge + demandCharge + meterCharge + vatAmount + adjustmentAmount,
   );
 
   return {
@@ -530,11 +558,13 @@ const calculateElectricityBill = async (
       effectiveTo: tariff.effectiveTo,
       lifeline: tariff.lifeline,
       slabs: tariff.slabs,
+      demandChargePerKw,
       vatPercentage: tariff.vatPercentage,
     },
     consumedUnit,
     breakdown,
     energyCharge,
+    demandCharge,
     meterCharge,
     vatAmount,
     adjustmentAmount: roundMoney(adjustmentAmount),

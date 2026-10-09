@@ -18,6 +18,9 @@ export interface ISubmeterReading {
   previousReadingDate: string;
   currentReadingDate: string;
   revision: number;
+  meterPhase?: 'singlePhase' | 'threePhase' | null;
+  connectedLoad?: number | null;
+  meterChargeOverride?: number | null;
   useAverageRate?: boolean;
   averageRate?: number | null;
   updatedBy?: Types.ObjectId;
@@ -50,6 +53,13 @@ const schema = new Schema<ISubmeterReading>(
     previousReadingDate: { type: String, required: true },
     currentReadingDate: { type: String, required: true },
     revision: { type: Number, default: 0 },
+    meterPhase: {
+      type: String,
+      enum: ['singlePhase', 'threePhase', null],
+      default: null,
+    },
+    connectedLoad: { type: Number, min: 0, default: null },
+    meterChargeOverride: { type: Number, min: 0, default: null },
     useAverageRate: { type: Boolean, default: false },
     averageRate: { type: Number, min: 0, default: null },
     updatedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },

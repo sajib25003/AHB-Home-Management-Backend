@@ -53,6 +53,7 @@ export interface IElectricityTariffSchedule {
 
   lifeline: ITariffLifeline;
   slabs: ITariffSlab[];
+  demandChargePerKw?: number;
   vatPercentage: number;
   meterCharges: IMeterCharge[];
 

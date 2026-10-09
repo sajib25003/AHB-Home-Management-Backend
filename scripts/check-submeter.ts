@@ -98,7 +98,11 @@ ElectricityTariffScheduleModel.findOne = (() =>
       { fromUnit: 76, toUnit: null, rate: 6 },
     ],
     vatPercentage: 5,
-    meterCharges: [],
+    meterCharges: [
+      { meterPhase: 'singlePhase', loadFrom: 0, loadTo: 5, amount: 40 },
+      { meterPhase: 'singlePhase', loadFrom: 5.01, loadTo: null, amount: 80 },
+      { meterPhase: 'threePhase', loadFrom: 0, loadTo: null, amount: 250 },
+    ],
   })) as never;
 
 async function run() {
@@ -203,6 +207,121 @@ async function run() {
     ),
     /cannot be after/,
   );
+  const automatic = {
+    ...payload,
+    meterCharge: undefined,
+    meterPhase: 'singlePhase' as const,
+    connectedLoad: 3,
+  };
+  const single = await SubmeterServices.preview(automatic, actor);
+  assert.equal(single.meterCharge, 40);
+  assert.equal(single.demandCharge, 126);
+  assert.equal(single.vatAmount, 34.55);
+  assert.equal(single.totalAmount, 720.55);
+  const higherLoad = await SubmeterServices.preview(
+    { ...automatic, connectedLoad: 6 },
+    actor,
+  );
+  assert.equal(higherLoad.meterCharge, 80);
+  const three = await SubmeterServices.preview(
+    { ...automatic, meterPhase: 'threePhase' },
+    actor,
+  );
+  assert.equal(three.meterCharge, 250);
+  assert.equal(three.demandCharge, 126);
+  const override = await SubmeterServices.preview(
+    { ...automatic, meterCharge: 0 },
+    actor,
+  );
+  assert.equal(override.meterCharge, 0);
+  await assert.rejects(
+    SubmeterServices.preview({ ...automatic, connectedLoad: -1 }, actor),
+    /load/,
+  );
+  await assert.rejects(
+    SubmeterServices.preview(
+      { ...automatic, meterPhase: 'wrong' as never },
+      actor,
+    ),
+    /phase/,
+  );
+  await assert.rejects(
+    SubmeterServices.preview({ ...automatic, connectedLoad: undefined }, actor),
+    /required/,
+  );
+  const phaseSaved = await SubmeterServices.save(automatic, actor);
+  assert.equal(phaseSaved.meterPhase, 'singlePhase');
+  assert.equal(phaseSaved.connectedLoad, 3);
+  assert.equal(phaseSaved.meterChargeOverride, null);
+  const savedTariffLookup = ElectricityTariffScheduleModel.findOne;
+  ElectricityTariffScheduleModel.findOne = (() =>
+    query({
+      _id: new Types.ObjectId(),
+      name: 'User screenshot slab example',
+      effectiveFrom: new Date('2026-06-01'),
+      lifeline: { maximumUnit: 50, rate: 4.63 },
+      slabs: [
+        { fromUnit: 0, toUnit: 75, rate: 5.26 },
+        { fromUnit: 76, toUnit: 200, rate: 8.5 },
+      ],
+      vatPercentage: 5,
+      meterCharges: [],
+      demandChargePerKw: 42,
+    })) as never;
+  const standard = await SubmeterServices.preview(
+    {
+      ...automatic,
+      billingPeriod: '2026-09',
+      currentReading: 1175.22,
+      connectedLoad: 2,
+      adjustmentAmount: 0,
+    },
+    actor,
+  );
+  assert.equal(standard.energyCharge, 1246.37);
+  assert.equal(standard.demandCharge, 84);
+  assert.equal(standard.meterCharge, 40);
+  assert.equal(standard.vatAmount, 68.52);
+  assert.equal(standard.totalAmount, 1438.89);
+  const threeStandard = await SubmeterServices.preview(
+    {
+      ...automatic,
+      billingPeriod: '2026-09',
+      connectedLoad: 5,
+      meterPhase: 'threePhase',
+    },
+    actor,
+  );
+  assert.equal(threeStandard.demandCharge, 210);
+  assert.equal(threeStandard.meterCharge, 250);
+  ElectricityTariffScheduleModel.findOne = (() =>
+    query({
+      _id: new Types.ObjectId(),
+      name: 'Receipt energy reproduction',
+      effectiveFrom: new Date('2026-06-01'),
+      lifeline: { maximumUnit: 50, rate: 2122.97 },
+      slabs: [{ fromUnit: 0, toUnit: null, rate: 2122.97 }],
+      vatPercentage: 5,
+      meterCharges: [],
+      demandChargePerKw: 42,
+    })) as never;
+  const receipt = await SubmeterServices.preview(
+    {
+      ...automatic,
+      billingPeriod: '2026-09',
+      currentReading: 1001,
+      connectedLoad: 5,
+      meterPhase: 'threePhase',
+      adjustmentAmount: 0,
+    },
+    actor,
+  );
+  assert.equal(receipt.energyCharge, 2122.97);
+  assert.equal(receipt.demandCharge, 210);
+  assert.equal(receipt.meterCharge, 250);
+  assert.equal(receipt.vatAmount, 129.15);
+  assert.equal(receipt.totalAmount, 2712.12);
+  ElectricityTariffScheduleModel.findOne = savedTariffLookup;
   const originalTariffLookup = ElectricityTariffScheduleModel.findOne;
   ElectricityTariffScheduleModel.findOne = (() => {
     throw new Error('Manual average must not use provider tariff');
@@ -327,7 +446,7 @@ async function run() {
   );
   assert.equal(createdBill.totalAmount, 2556.75);
   console.log(
-    'PASS: manual average rate without provider tariff or extra VAT, validation and persistence; dated readings, editable baseline, next-month reading date, revisions, owner isolation, automatic due-bill sync, tariff math, blank and auto-filled electricity in real bill service',
+    'PASS: phase/load tariff charges and optional override, persistence; manual average rate without provider tariff or extra VAT, validation and persistence; dated readings, editable baseline, next-month reading date, revisions, owner isolation, automatic due-bill sync, tariff math, blank and auto-filled electricity in real bill service',
   );
 }
 void run();

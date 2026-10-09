@@ -15,6 +15,8 @@ export type SubmeterPayload = {
   previousReadingDate: string;
   currentReadingDate: string;
   expectedRevision?: number | null;
+  meterPhase?: 'singlePhase' | 'threePhase';
+  connectedLoad?: number;
   useAverageRate?: boolean;
   averageRate?: number | null;
   previousReading: number;
@@ -98,6 +100,8 @@ const getContext = async (
     existing: context.existing,
     previousReadingDate: context.previous?.currentReadingDate ?? null,
     previousMeterCharge: context.previous?.calculation.meterCharge ?? null,
+    meterPhase: context.previous?.meterPhase ?? null,
+    connectedLoad: context.previous?.connectedLoad ?? null,
     locked: false,
   };
 };
@@ -162,6 +166,26 @@ const prepare = async (payload: SubmeterPayload, actor: TPropertyActor) => {
     typeof payload.useAverageRate !== 'boolean'
   )
     throw new Error('Average rate option is invalid.');
+  if (
+    payload.meterPhase !== undefined &&
+    !['singlePhase', 'threePhase'].includes(payload.meterPhase)
+  )
+    throw new Error('Meter phase is invalid.');
+  if (
+    payload.connectedLoad !== undefined &&
+    (typeof payload.connectedLoad !== 'number' ||
+      !Number.isFinite(payload.connectedLoad) ||
+      payload.connectedLoad <= 0)
+  )
+    throw new Error('Sanctioned load must be a valid positive number in kW.');
+  if (
+    !payload.useAverageRate &&
+    payload.meterCharge === undefined &&
+    (!payload.meterPhase || payload.connectedLoad === undefined)
+  )
+    throw new Error(
+      'Meter phase and sanctioned load are required for automatic tariff charges.',
+    );
   let calculation: SubmeterCalculation;
   if (payload.useAverageRate) {
     const rate = payload.averageRate;
@@ -182,6 +206,7 @@ const prepare = async (payload: SubmeterPayload, actor: TPropertyActor) => {
         effectiveTo: null,
         lifeline: { maximumUnit: 0, rate },
         slabs: [],
+        demandChargePerKw: 0,
         vatPercentage: 0,
       },
       consumedUnit,
@@ -194,6 +219,7 @@ const prepare = async (payload: SubmeterPayload, actor: TPropertyActor) => {
         },
       ],
       energyCharge,
+      demandCharge: 0,
       meterCharge,
       vatAmount: 0,
       adjustmentAmount,
@@ -209,7 +235,11 @@ const prepare = async (payload: SubmeterPayload, actor: TPropertyActor) => {
         providerId: context.property.electricitySettings.providerId.toString(),
         consumedUnit,
         applicableDate: context.start,
-        meterChargeOverride: payload.meterCharge ?? 0,
+        meterPhase: payload.meterPhase,
+        connectedLoad: payload.connectedLoad,
+        ...(payload.meterCharge !== undefined
+          ? { meterChargeOverride: payload.meterCharge }
+          : {}),
         adjustmentAmount: payload.adjustmentAmount ?? 0,
       },
       actor,
@@ -344,6 +374,9 @@ const save = async (payload: SubmeterPayload, actor: TPropertyActor) => {
     currentReadingDate: payload.currentReadingDate,
     consumedUnit,
     calculation,
+    meterPhase: payload.meterPhase ?? null,
+    connectedLoad: payload.connectedLoad ?? null,
+    meterChargeOverride: payload.meterCharge ?? null,
     useAverageRate: payload.useAverageRate ?? false,
     averageRate: payload.useAverageRate ? payload.averageRate : null,
     updatedBy: actor.id,

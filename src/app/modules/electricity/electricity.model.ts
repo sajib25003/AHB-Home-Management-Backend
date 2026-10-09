@@ -131,6 +131,7 @@ const electricityTariffScheduleSchema = new Schema<IElectricityTariffSchedule>(
       ref: 'ElectricityProvider',
       default: null,
       index: true,
+      // eslint-disable-next-line no-unused-vars -- explicit TypeScript this parameter
       required: function (this: IElectricityTariffSchedule) {
         return this.scope === 'providerSpecific';
       },
@@ -156,6 +157,7 @@ const electricityTariffScheduleSchema = new Schema<IElectricityTariffSchedule>(
         message: 'At least one tariff slab is required.',
       },
     },
+    demandChargePerKw: { type: Number, min: 0, default: 42 },
     vatPercentage: {
       type: Number,
       required: true,
