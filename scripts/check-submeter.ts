@@ -445,8 +445,100 @@ async function run() {
     556.75,
   );
   assert.equal(createdBill.totalAmount, 2556.75);
+  // Correcting a due receipt must use the current reading, not its issued snapshot.
+  const billId = new Types.ObjectId();
+  let editBill = {
+    _id: billId,
+    ownerId,
+    propertyId,
+    apartmentId,
+    billingPeriod: '2020-01',
+    status: 'due',
+    updatedAt: new Date('2020-01-01'),
+    submeterManaged: true,
+    submeterReading: { calculation: { totalAmount: 99 } },
+  };
+  MonthlyRentBillModel.findOne = (() => query(editBill)) as never;
+  let edited: Record<string, unknown> = {};
+  let editFilter: Record<string, unknown> = {};
+  let conflict = false;
+  MonthlyRentBillModel.findOneAndUpdate = ((
+    filter: Record<string, unknown>,
+    update: { $set: Record<string, unknown> },
+  ) => {
+    editFilter = filter;
+    edited = update.$set;
+    return Promise.resolve(
+      conflict ? null : { ...editBill, ...edited, populate: async () => null },
+    );
+  }) as never;
+  const editPayload = { items: billPayload.items, adjustmentAmount: 5 };
+  await RentBillServices.updateRentBillInDB(
+    billId.toString(),
+    editPayload,
+    actor,
+  );
+  assert.equal(
+    (edited.items as Array<{ amount: number | null }>)[1].amount,
+    556.75,
+  );
+  assert.equal(edited.totalAmount, 2561.75);
+  assert.equal(editFilter.status, 'due');
+  assert.equal(editFilter.updatedAt, editBill.updatedAt);
+  assert.equal(String(editFilter.ownerId), actor.id);
+  existing = null;
+  await RentBillServices.updateRentBillInDB(
+    billId.toString(),
+    editPayload,
+    actor,
+  );
+  assert.equal(
+    (edited.items as Array<{ amount: number | null }>)[1].amount,
+    null,
+  );
+  assert.equal(edited.totalAmount, 2005);
+  conflict = true;
+  await assert.rejects(
+    RentBillServices.updateRentBillInDB(billId.toString(), editPayload, actor),
+    /has changed/,
+  );
+  conflict = false;
+  editBill = { ...editBill, status: 'paid' };
+  await assert.rejects(
+    RentBillServices.updateRentBillInDB(billId.toString(), editPayload, actor),
+    /Only a due/,
+  );
+  await assert.rejects(
+    RentBillServices.updateRentBillStatusInDB(
+      billId.toString(),
+      { status: 'void' },
+      actor,
+    ),
+    /Use delete/,
+  );
+  let deleteFilter: Record<string, unknown> = {};
+  MonthlyRentBillModel.findOneAndDelete = ((
+    filter: Record<string, unknown>,
+  ) => {
+    deleteFilter = filter;
+    return Promise.resolve({ _id: billId, receiptNumber: 'TEST-RECEIPT' });
+  }) as never;
+  const removed = await RentBillServices.deleteRentBillFromDB(
+    billId.toString(),
+    actor,
+  );
+  assert.equal(removed?.deleted, true);
+  assert.equal(String(deleteFilter.ownerId), actor.id);
+  assert.equal(String(deleteFilter._id), billId.toString());
+  await assert.rejects(
+    RentBillServices.deleteRentBillFromDB(billId.toString(), {
+      id: actor.id,
+      role: 'tenant',
+    }),
+    /not authorized/,
+  );
   console.log(
-    'PASS: phase/load tariff charges and optional override, persistence; manual average rate without provider tariff or extra VAT, validation and persistence; dated readings, editable baseline, next-month reading date, revisions, owner isolation, automatic due-bill sync, tariff math, blank and auto-filled electricity in real bill service',
+    'PASS: due receipt uses latest reading, blank if absent, paid protection, stale edit conflict, owner-scoped hard delete, void rejected; phase/load tariff charges and optional override, persistence; manual average rate without provider tariff or extra VAT, validation and persistence; dated readings, editable baseline, next-month reading date, revisions, owner isolation, automatic due-bill sync, tariff math, blank and auto-filled electricity in real bill service',
   );
 }
 void run();

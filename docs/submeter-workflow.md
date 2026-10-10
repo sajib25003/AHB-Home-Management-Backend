@@ -32,6 +32,8 @@ Billing month is independent of reading dates: a September bill may use an Octob
 - Configure a new meter number and opening reading after a meter replacement/reset. A replacement does not erase historical readings.
 - Saving or updating automatically refreshes electricity and totals on existing **due** rent bills for the same apartment/month. Paid receipts preserve their issued snapshot.
 - Rent bill creation automatically takes the saved apartment/month electricity amount. If there is no saved reading, electricity remains null and prints blank on the receipt. Electricity is locked in the rent form; edit the submeter record to change it.
+- Due receipts expose the month's submeter editor inside **Edit bill**. Save the corrected reading to recalculate and synchronize due receipts; saving the receipt also reloads the latest month reading rather than restoring its older snapshot. Paid receipts cannot be edited. Concurrent receipt changes reject the save and require a reload.
+- **Delete receipt** permanently removes the receipt and its embedded payment history after a warning. Submeter readings remain available for a replacement receipt. New void transitions are disabled. Duplicate generation reports a failure and preserves the preview; successful updates show a confirmation, while reading synchronization failures show a warning.
 
 ## APIs
 
@@ -41,6 +43,7 @@ All routes require an authenticated owner or super administrator.
 - `POST /api/v1/electricity/submeter/preview`
 - `POST /api/v1/electricity/submeter/readings` (create or update)
 - `GET /api/v1/electricity/submeter/readings?apartmentId=...&year=2026`
+- `DELETE /api/v1/rent-bills/:billId` (owner-scoped permanent deletion)
 
 POST body:
 

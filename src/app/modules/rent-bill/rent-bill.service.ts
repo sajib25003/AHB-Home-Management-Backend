@@ -14,7 +14,6 @@ import {
   IRentBillItem,
   PAYMENT_METHODS,
   RENT_BILL_ITEM_TYPES,
-  RENT_BILL_STATUSES,
   TCreateRentBillPayload,
   TRentBillItemPayload,
   TRentBillListQuery,
@@ -240,11 +239,7 @@ const getGenerationContextFromDB = async (
   // Every active property category belongs in the monthly bill. Apartment
   // settings only provide the per-apartment amount; they must not decide
   // whether an otherwise active property category appears at all.
-  await ensureDefaultCategories(
-    tenancy.ownerId,
-    tenancy.propertyId,
-    actor.id,
-  );
+  await ensureDefaultCategories(tenancy.ownerId, tenancy.propertyId, actor.id);
 
   const categories = await ChargeCategoryModel.find({
     propertyId: tenancy.propertyId,
@@ -296,15 +291,29 @@ const getGenerationContextFromDB = async (
     });
   }
 
-  const submeterRequired = parties.apartment.electricityConfig?.billingType === 'submeter'
-    && parties.apartment.electricityConfig.paymentResponsibility === 'ownerCollects';
+  const submeterRequired =
+    parties.apartment.electricityConfig?.billingType === 'submeter' &&
+    parties.apartment.electricityConfig.paymentResponsibility ===
+      'ownerCollects';
   if (submeterRequired && !items.some((item) => item.key === 'ELECTRICITY')) {
-    items.push({ categoryId: null, key: 'ELECTRICITY', label: 'Electricity Bill', amount: null, type: 'variable' });
+    items.push({
+      categoryId: null,
+      key: 'ELECTRICITY',
+      label: 'Electricity Bill',
+      amount: null,
+      type: 'variable',
+    });
   }
-  const submeterReading = submeterRequired ? await SubmeterReadingModel.findOne({ apartmentId: tenancy.apartmentId, billingPeriod }).lean() : null;
+  const submeterReading = submeterRequired
+    ? await SubmeterReadingModel.findOne({
+        apartmentId: tenancy.apartmentId,
+        billingPeriod,
+      }).lean()
+    : null;
   if (submeterReading) {
     const electricity = items.find((item) => item.key === 'ELECTRICITY');
-    if (electricity) electricity.amount = submeterReading.calculation.totalAmount;
+    if (electricity)
+      electricity.amount = submeterReading.calculation.totalAmount;
   }
 
   return {
@@ -381,9 +390,12 @@ const normalizeItems = async (
     }
 
     if (
-      !(item.amount === null && item.key?.trim().toUpperCase() === 'ELECTRICITY') && (typeof item.amount !== 'number' ||
-      !Number.isFinite(item.amount) ||
-      item.amount < 0)
+      !(
+        item.amount === null && item.key?.trim().toUpperCase() === 'ELECTRICITY'
+      ) &&
+      (typeof item.amount !== 'number' ||
+        !Number.isFinite(item.amount) ||
+        item.amount < 0)
     ) {
       throw new Error(`${label} amount is invalid.`);
     }
@@ -395,9 +407,7 @@ const normalizeItems = async (
       .slice(0, 100);
 
     return {
-      categoryId: item.categoryId
-        ? new Types.ObjectId(item.categoryId)
-        : null,
+      categoryId: item.categoryId ? new Types.ObjectId(item.categoryId) : null,
       key,
       label,
       amount: item.amount === null ? null : roundMoney(item.amount),
@@ -412,7 +422,6 @@ const normalizeItems = async (
   if (!normalized.some((item) => item.key === 'BASE_RENT')) {
     throw new Error('Base rent is required in every monthly rent bill.');
   }
-
 
   return normalized;
 };
@@ -457,15 +466,32 @@ const createRentBillIntoDB = async (
   assertTenancyCoversPeriod(tenancy, period.start, period.end);
 
   const parties = await loadBillParties(tenancy);
-  const submeterRequired = parties.apartment.electricityConfig?.billingType === 'submeter'
-    && parties.apartment.electricityConfig.paymentResponsibility === 'ownerCollects';
-  const submeterReading = submeterRequired ? await SubmeterReadingModel.findOne({ apartmentId: tenancy.apartmentId, billingPeriod: payload.billingPeriod }).lean() : null;
-  if (!Array.isArray(payload.items)) throw new Error('Bill items are required.');
+  const submeterRequired =
+    parties.apartment.electricityConfig?.billingType === 'submeter' &&
+    parties.apartment.electricityConfig.paymentResponsibility ===
+      'ownerCollects';
+  const submeterReading = submeterRequired
+    ? await SubmeterReadingModel.findOne({
+        apartmentId: tenancy.apartmentId,
+        billingPeriod: payload.billingPeriod,
+      }).lean()
+    : null;
+  if (!Array.isArray(payload.items))
+    throw new Error('Bill items are required.');
   const sourceItems = payload.items.map((item) => ({ ...item }));
   if (submeterRequired) {
-    const electricity = sourceItems.find((item) => item.key?.trim().toUpperCase() === 'ELECTRICITY');
-    if (electricity) electricity.amount = submeterReading?.calculation.totalAmount ?? null;
-    else sourceItems.push({ key: 'ELECTRICITY', label: 'Electricity Bill', type: 'variable', amount: submeterReading?.calculation.totalAmount ?? null });
+    const electricity = sourceItems.find(
+      (item) => item.key?.trim().toUpperCase() === 'ELECTRICITY',
+    );
+    if (electricity)
+      electricity.amount = submeterReading?.calculation.totalAmount ?? null;
+    else
+      sourceItems.push({
+        key: 'ELECTRICITY',
+        label: 'Electricity Bill',
+        type: 'variable',
+        amount: submeterReading?.calculation.totalAmount ?? null,
+      });
   }
   const items = await normalizeItems(sourceItems, tenancy.propertyId);
   const totals = calculateTotals(items, payload.adjustmentAmount ?? 0);
@@ -503,8 +529,7 @@ const createRentBillIntoDB = async (
     submeterReading,
     submeterManaged: submeterRequired,
     ...totals,
-    adjustmentNote:
-      normalizeText(payload.adjustmentNote, 1000) ?? null,
+    adjustmentNote: normalizeText(payload.adjustmentNote, 1000) ?? null,
     status: 'due',
     issuedAt: now,
     dueDate,
@@ -564,7 +589,11 @@ const getAllRentBillsFromDB = async (
   const filter: FilterQuery<IMonthlyRentBill> = {};
 
   if (query.year !== undefined) {
-    if (!Number.isInteger(query.year) || query.year < 2000 || query.year > 2200) {
+    if (
+      !Number.isInteger(query.year) ||
+      query.year < 2000 ||
+      query.year > 2200
+    ) {
       throw new Error('Billing year is invalid.');
     }
     filter.billingPeriod = { $regex: `^${query.year}-` };
@@ -635,7 +664,10 @@ const getAllRentBillsFromDB = async (
   ]);
 
   const summaryMap = new Map(
-    summaryRows.map((row) => [row._id, { count: row.count, amount: row.amount }]),
+    summaryRows.map((row) => [
+      row._id,
+      { count: row.count, amount: row.amount },
+    ]),
   );
 
   return {
@@ -681,27 +713,68 @@ const updateRentBillInDB = async (
   }
 
   const items = await normalizeItems(payload.items, bill.propertyId);
-  if (bill.submeterManaged || bill.submeterReading) {
+  const managed = Boolean(bill.submeterManaged || bill.submeterReading);
+  const latestReading = managed
+    ? await SubmeterReadingModel.findOne({
+        apartmentId: bill.apartmentId,
+        ownerId: bill.ownerId,
+        billingPeriod: bill.billingPeriod,
+      }).lean()
+    : null;
+  if (managed) {
     const electricity = items.find((item) => item.key === 'ELECTRICITY');
-    const amount = bill.submeterReading?.calculation.totalAmount ?? null;
+    const amount = latestReading?.calculation.totalAmount ?? null;
     if (electricity) electricity.amount = amount;
-    else items.push({ categoryId: null, key: 'ELECTRICITY', label: 'Electricity Bill', type: 'variable', amount });
+    else
+      items.push({
+        categoryId: null,
+        key: 'ELECTRICITY',
+        label: 'Electricity Bill',
+        type: 'variable',
+        amount,
+      });
   }
   const totals = calculateTotals(items, payload.adjustmentAmount ?? 0);
+  const updated = await MonthlyRentBillModel.findOneAndUpdate(
+    {
+      ...filter,
+      status: 'due',
+      ...(bill.updatedAt ? { updatedAt: bill.updatedAt } : {}),
+    },
+    {
+      $set: {
+        items,
+        ...totals,
+        ...(managed
+          ? { submeterReading: latestReading, submeterManaged: true }
+          : {}),
+        adjustmentNote: normalizeText(payload.adjustmentNote, 1000) ?? null,
+        dueDate: parseOptionalDate(payload.dueDate, 'Due date'),
+        note: normalizeText(payload.note, 2000) ?? null,
+        updatedBy: new Types.ObjectId(actor.id),
+      },
+    },
+    { new: true, runValidators: true },
+  );
+  if (!updated)
+    throw new Error(
+      'This bill has changed or is no longer due. Reload before editing.',
+    );
+  await updated.populate(BILL_POPULATE);
+  return updated;
+};
 
-  bill.items = items;
-  bill.subtotal = totals.subtotal;
-  bill.adjustmentAmount = totals.adjustmentAmount;
-  bill.totalAmount = totals.totalAmount;
-  bill.adjustmentNote =
-    normalizeText(payload.adjustmentNote, 1000) ?? null;
-  bill.dueDate = parseOptionalDate(payload.dueDate, 'Due date');
-  bill.note = normalizeText(payload.note, 2000) ?? null;
-  bill.updatedBy = new Types.ObjectId(actor.id);
-
-  await bill.save();
-  await bill.populate(BILL_POPULATE);
-  return bill;
+const deleteRentBillFromDB = async (billId: string, actor: TPropertyActor) => {
+  ensureManager(actor);
+  const deleted = await MonthlyRentBillModel.findOneAndDelete(
+    buildAccessibleBillFilter(billId, actor),
+  );
+  if (!deleted) return null;
+  return {
+    _id: deleted._id,
+    receiptNumber: deleted.receiptNumber,
+    deleted: true,
+  };
 };
 
 const updateRentBillStatusInDB = async (
@@ -715,8 +788,10 @@ const updateRentBillStatusInDB = async (
 
   if (!bill) return null;
 
-  if (!RENT_BILL_STATUSES.includes(payload.status)) {
-    throw new Error('Rent bill status is invalid.');
+  if (!['due', 'paid'].includes(payload.status)) {
+    throw new Error(
+      'Rent bill status is invalid. Use delete to permanently remove a receipt.',
+    );
   }
 
   if (bill.status === 'void') {
@@ -791,4 +866,5 @@ export const RentBillServices = {
   getSingleRentBillFromDB,
   updateRentBillInDB,
   updateRentBillStatusInDB,
+  deleteRentBillFromDB,
 };

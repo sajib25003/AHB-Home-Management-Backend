@@ -70,7 +70,8 @@ const sendRentBillError = (
     if (
       normalized.includes('already') ||
       normalized.includes('only a due') ||
-      normalized.includes('cannot be changed')
+      normalized.includes('cannot be changed') ||
+      normalized.includes('has changed')
     ) {
       return res.status(409).json({ success: false, message });
     }
@@ -182,9 +183,7 @@ const getAllRentBills: RequestHandler = async (req, res) => {
           ? req.query.apartmentId
           : undefined,
       tenantId:
-        typeof req.query.tenantId === 'string'
-          ? req.query.tenantId
-          : undefined,
+        typeof req.query.tenantId === 'string' ? req.query.tenantId : undefined,
       status: rawStatus as TRentBillStatus | undefined,
       page: parsePositiveInteger(req.query.page, 'Page'),
       limit: parsePositiveInteger(req.query.limit, 'Limit'),
@@ -291,7 +290,32 @@ const updateRentBillStatus: RequestHandler = async (req, res) => {
   }
 };
 
+const deleteRentBill: RequestHandler = async (req, res) => {
+  try {
+    const actor = getActor(req, res);
+    if (!actor) return;
+    const result = await RentBillServices.deleteRentBillFromDB(
+      req.params.billId,
+      actor,
+    );
+    if (!result) {
+      res.status(404).json({ success: false, message: 'Rent bill not found.' });
+      return;
+    }
+    res
+      .status(200)
+      .json({
+        success: true,
+        message: 'Receipt permanently deleted.',
+        data: result,
+      });
+  } catch (error) {
+    sendRentBillError(res, error, 'Failed to delete the receipt.');
+  }
+};
+
 export const RentBillController = {
+  deleteRentBill,
   getGenerationContext,
   createRentBill,
   getAllRentBills,

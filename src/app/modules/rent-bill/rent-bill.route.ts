@@ -39,4 +39,10 @@ rentBillRouter.patch(
   RentBillController.updateRentBillStatus,
 );
 
+rentBillRouter.delete(
+  '/:billId',
+  authorizeRoles('superAdmin', 'owner'),
+  RentBillController.deleteRentBill,
+);
+
 export default rentBillRouter;
